@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -17,22 +20,26 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Verify VS toolchain
-        shell: powershell
-        run: |
-          Write-Output "Checking MSVC/MSBuild and NuGet availability"
-          msbuild -version
-          cl.exe /?
-          if (-not (Get-Command nuget -ErrorAction SilentlyContinue)) {
-            Write-Output "NuGet not found, installing via choco"
-            choco install nuget.commandline -y
-          } else {
-            Write-Output "NuGet found"
-          }
-          nuget.exe help
-
       - name: Flutter pub get
         run: flutter pub get
+
+      - name: Locate MSBuild and add to PATH
+        shell: powershell
+        run: |
+          Write-Output "Locating MSBuild with vswhere and adding to PATH"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere not found at $vswhere"
+            exit 1
+          }
+          $inst = & $vswhere -latest -requires Microsoft.Component.MSBuild -products * -property installationPath
+          if (-not $inst) {
+            Write-Error "Visual Studio with MSBuild not found"
+            exit 1
+          }
+          $msbuildDir = Join-Path $inst 'MSBuild\Current\Bin'
+          Write-Output "Found MSBuild dir: $msbuildDir"
+          Add-Content -Path $env:GITHUB_PATH -Value $msbuildDir
 
       - name: Verify VS toolchain
         shell: powershell
