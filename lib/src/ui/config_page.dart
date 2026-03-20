@@ -1,9 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:picoclaw_flutter_ui/src/core/service_manager.dart';
 import 'package:picoclaw_flutter_ui/src/generated/l10n/app_localizations.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:picoclaw_flutter_ui/src/core/app_theme.dart';
+import 'package:picoclaw_flutter_ui/src/core/picoclaw_channel.dart';
 
 class ConfigPage extends StatefulWidget {
   const ConfigPage({super.key});
@@ -26,6 +29,32 @@ class _ConfigPageState extends State<ConfigPage> {
     _portController.text = service.webUrl.split(':').last;
     _pathController.text = service.binaryPath;
     _argsController.text = service.arguments;
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    try {
+      String configStr;
+      if (Platform.isAndroid) {
+        configStr = await PicoClawChannel.getConfig();
+      } else {
+        final file = File('config.json');
+        if (await file.exists()) {
+          configStr = await file.readAsString();
+        } else {
+          configStr = '';
+        }
+      }
+
+      if (configStr.isEmpty) {
+        return;
+      }
+
+      // 只验证配置文件可被成功解析，不处理模型列表
+      jsonDecode(configStr) as Map<String, dynamic>;
+    } catch (e) {
+      // 忽略配置加载错误
+    }
   }
 
   @override
@@ -53,11 +82,16 @@ class _ConfigPageState extends State<ConfigPage> {
     final l10n = AppLocalizations.of(context)!;
     final service = context.read<ServiceManager>();
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ========================
+          // 服务基础配置
+          // ========================
+          Text('服务配置', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
           TextField(
             controller: _hostController,
             decoration: InputDecoration(labelText: l10n.address),
@@ -118,7 +152,6 @@ class _ConfigPageState extends State<ConfigPage> {
                 onPressed: () async {
                   final port = int.tryParse(_portController.text);
                   if (port != null) {
-                    // Capture context-derived objects before async gap
                     final messenger = ScaffoldMessenger.of(context);
                     final savedL10n = AppLocalizations.of(context)!;
 
@@ -152,11 +185,15 @@ class _ConfigPageState extends State<ConfigPage> {
               );
             },
           ),
+
+          // ========================
+          // 主题选择
+          // ========================
           const SizedBox(height: 32),
           const Divider(),
           const SizedBox(height: 16),
           Text(
-            'Theme Selection', // Using hardcoded for safety as l10n.theme might be missing
+            'Theme Selection',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
@@ -226,6 +263,7 @@ class _ConfigPageState extends State<ConfigPage> {
               );
             }).toList(),
           ),
+          const SizedBox(height: 32),
         ],
       ),
     );
