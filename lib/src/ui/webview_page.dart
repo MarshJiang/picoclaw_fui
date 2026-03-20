@@ -32,6 +32,17 @@ class _WebViewPageState extends State<WebViewPage> {
   StreamSubscription? _winLoadErrorSub;
 
   bool _isLoading = true;
+  // Action order for draggable controls. Values: 'back','forward','reload'
+  final List<String> _actionOrder = ['back', 'forward', 'reload'];
+  // Offset for draggable actions group in the WebView stack (local coordinates).
+  Offset? _actionsOffset;
+  final GlobalKey _webviewStackKey = GlobalKey();
+  // Key to measure the actions group's size so snapping clamps correctly.
+  final GlobalKey _actionsKey = GlobalKey();
+  // Whether dragging the whole group requires a long press to start.
+  // Default: require long press on touch platforms, allow direct drag on desktop.
+  final bool _dragRequiresLongPress = Platform.isAndroid || Platform.isIOS;
+  bool _dragActive = false; // true while in long-press dragging session
 
   @override
   void initState() {
@@ -180,14 +191,18 @@ class _WebViewPageState extends State<WebViewPage> {
                 debugPrint('WinWebView blank observed count=$_winBlankCount');
                 // First, try a soft recovery by reloading
                 if (_winBlankCount >= 2) {
-                  debugPrint('WinWebView blank — attempting reload (count=$_winBlankCount)');
+                  debugPrint(
+                    'WinWebView blank — attempting reload (count=$_winBlankCount)',
+                  );
                   try {
                     await _winController?.reload();
                   } catch (_) {}
                 }
                 // If reload didn't help after several tries, fully reinit the controller
                 if (_winBlankCount >= 4) {
-                  debugPrint('WinWebView persistent blank — reinitializing controller');
+                  debugPrint(
+                    'WinWebView persistent blank — reinitializing controller',
+                  );
                   if (mounted) {
                     await _reinitWindowsWebView();
                   }
@@ -308,50 +323,230 @@ class _WebViewPageState extends State<WebViewPage> {
       bool canBack = true,
       bool canForward = true,
     }) {
+      // Build draggable icons according to current order
+      Widget buildAction(String key, int index) {
+        Icon icon;
+        String tooltip;
+        VoidCallback? handler;
+        bool enabled = true;
+
+        switch (key) {
+          case 'back':
+            icon = Icon(
+              Remix.arrow_left_s_line,
+              color: canBack
+                  ? colorScheme.secondary
+                  : colorScheme.onSurface.withAlpha(
+                      ((0.2).clamp(0.0, 1.0) * 255).round(),
+                    ),
+            );
+            tooltip = l10n.back;
+            handler = canBack ? onBack : null;
+            enabled = canBack;
+            break;
+          case 'forward':
+            icon = Icon(
+              Remix.arrow_right_s_line,
+              color: canForward
+                  ? colorScheme.secondary
+                  : colorScheme.onSurface.withAlpha(
+                      ((0.2).clamp(0.0, 1.0) * 255).round(),
+                    ),
+            );
+            tooltip = l10n.forward;
+            handler = canForward ? onForward : null;
+            enabled = canForward;
+            break;
+          case 'reload':
+          default:
+            icon = Icon(Remix.refresh_line, color: colorScheme.secondary);
+            tooltip = l10n.refresh;
+            handler = onReload;
+            enabled = true;
+            break;
+        }
+
+        // Return a simple IconButton for group-only dragging.
+        return IconButton(
+          icon: icon,
+          tooltip: tooltip,
+          onPressed: enabled ? handler : null,
+        );
+      }
+
+      // The actions group widget (material container with icon buttons)
+      final Widget inner = Material(
+        key: _actionsKey,
+        color: colorScheme.surface.withAlpha(
+          ((0.7).clamp(0.0, 1.0) * 255).round(),
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List<Widget>.generate(
+              _actionOrder.length,
+              (i) => buildAction(_actionOrder[i], i),
+            ),
+          ),
+        ),
+      );
+
+      final Widget actionsGroup = AnimatedScale(
+        scale: _dragActive ? 1.06 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            boxShadow: _dragActive
+                ? [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 12,
+                      offset: Offset(0, 6),
+                    ),
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 6,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: inner,
+        ),
+      );
+
+      // Wrap in GestureDetector so the user can drag the whole group with mouse or touch.
+      final draggable = MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          // For platforms where long-press is required, enable drag only
+          // while a long-press session is active. For desktop we allow
+          // direct pan updates (mouse drag) via onPanUpdate.
+          onPanStart: (details) {
+            if (!_dragRequiresLongPress) {
+              setState(() => _dragActive = true);
+            }
+          },
+          onPanUpdate: (details) {
+            if (_dragRequiresLongPress && !_dragActive) return;
+            try {
+              final box =
+                  _webviewStackKey.currentContext?.findRenderObject()
+                      as RenderBox?;
+              if (box != null) {
+                final local = box.globalToLocal(details.globalPosition);
+                final actionBox =
+                    _actionsKey.currentContext?.findRenderObject()
+                        as RenderBox?;
+                final actionW = actionBox?.size.width ?? 80.0;
+                final actionH = actionBox?.size.height ?? 56.0;
+                final maxX = (box.size.width - actionW).clamp(
+                  0.0,
+                  double.infinity,
+                );
+                final maxY = (box.size.height - actionH).clamp(
+                  0.0,
+                  double.infinity,
+                );
+                final dx = local.dx.clamp(0.0, maxX);
+                final dy = local.dy.clamp(0.0, maxY);
+                setState(() => _actionsOffset = Offset(dx, dy));
+              }
+            } catch (_) {}
+          },
+          onPanEnd: (details) {
+            if (!_dragRequiresLongPress) {
+              setState(() => _dragActive = false);
+              _snapActionsToEdge();
+            }
+          },
+          onLongPressStart: _dragRequiresLongPress
+              ? (details) {
+                  setState(() => _dragActive = true);
+                  try {
+                    final box =
+                        _webviewStackKey.currentContext?.findRenderObject()
+                            as RenderBox?;
+                    if (box != null) {
+                      final local = box.globalToLocal(details.globalPosition);
+                      final actionBox =
+                          _actionsKey.currentContext?.findRenderObject()
+                              as RenderBox?;
+                      final actionW = actionBox?.size.width ?? 80.0;
+                      final actionH = actionBox?.size.height ?? 56.0;
+                      final maxX = (box.size.width - actionW).clamp(
+                        0.0,
+                        double.infinity,
+                      );
+                      final maxY = (box.size.height - actionH).clamp(
+                        0.0,
+                        double.infinity,
+                      );
+                      final dx = local.dx.clamp(0.0, maxX);
+                      final dy = local.dy.clamp(0.0, maxY);
+                      setState(() => _actionsOffset = Offset(dx, dy));
+                    }
+                  } catch (_) {}
+                }
+              : null,
+          onLongPressMoveUpdate: _dragRequiresLongPress
+              ? (details) {
+                  try {
+                    final box =
+                        _webviewStackKey.currentContext?.findRenderObject()
+                            as RenderBox?;
+                    if (box != null) {
+                      final local = box.globalToLocal(details.globalPosition);
+                      final actionBox =
+                          _actionsKey.currentContext?.findRenderObject()
+                              as RenderBox?;
+                      final actionW = actionBox?.size.width ?? 80.0;
+                      final actionH = actionBox?.size.height ?? 56.0;
+                      final maxX = (box.size.width - actionW).clamp(
+                        0.0,
+                        double.infinity,
+                      );
+                      final maxY = (box.size.height - actionH).clamp(
+                        0.0,
+                        double.infinity,
+                      );
+                      final dx = local.dx.clamp(0.0, maxX);
+                      final dy = local.dy.clamp(0.0, maxY);
+                      setState(() => _actionsOffset = Offset(dx, dy));
+                    }
+                  } catch (_) {}
+                }
+              : null,
+          onLongPressEnd: _dragRequiresLongPress
+              ? (details) {
+                  setState(() => _dragActive = false);
+                  _snapActionsToEdge();
+                }
+              : null,
+          child: actionsGroup,
+        ),
+      );
+
+      // If offset is set, position absolutely; otherwise align top-right with margin.
+      if (_actionsOffset != null) {
+        return AnimatedPositioned(
+          left: _actionsOffset!.dx,
+          top: _actionsOffset!.dy,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: draggable,
+        );
+      }
+
       return Container(
         alignment: Alignment.topRight,
         margin: const EdgeInsets.only(top: 12, right: 12),
-        child: Material(
-          color: colorScheme.surface.withAlpha(
-            ((0.7).clamp(0.0, 1.0) * 255).round(),
-          ),
-          borderRadius: BorderRadius.circular(16),
-          elevation: 2,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: Icon(
-                  Remix.arrow_left_s_line,
-                  color: canBack
-                      ? colorScheme.secondary
-                      : colorScheme.onSurface.withAlpha(
-                          ((0.2).clamp(0.0, 1.0) * 255).round(),
-                        ),
-                ),
-                tooltip: l10n.goToDashboard,
-                onPressed: canBack ? onBack : null,
-              ),
-              IconButton(
-                icon: Icon(
-                  Remix.arrow_right_s_line,
-                  color: canForward
-                      ? colorScheme.secondary
-                      : colorScheme.onSurface.withAlpha(
-                          ((0.2).clamp(0.0, 1.0) * 255).round(),
-                        ),
-                ),
-                tooltip: l10n.goToDashboard,
-                onPressed: canForward ? onForward : null,
-              ),
-              IconButton(
-                icon: Icon(Remix.refresh_line, color: colorScheme.secondary),
-                tooltip: 'Refresh',
-                onPressed: onReload,
-              ),
-            ],
-          ),
-        ),
+        child: draggable,
       );
     }
 
@@ -435,6 +630,7 @@ class _WebViewPageState extends State<WebViewPage> {
     if (Platform.isWindows) {
       return _winReady
           ? Stack(
+              key: _webviewStackKey,
               children: [
                 // WebView area
                 MouseRegion(
@@ -520,6 +716,7 @@ class _WebViewPageState extends State<WebViewPage> {
 
     if (Platform.isAndroid || Platform.isIOS) {
       return Stack(
+        key: _webviewStackKey,
         children: [
           Listener(
             onPointerDown: (event) {
@@ -558,5 +755,69 @@ class _WebViewPageState extends State<WebViewPage> {
     }
 
     return Center(child: Text('Platform not supported for embedded WebView'));
+  }
+
+  // Snap the actions group to the nearest edge of the webview stack.
+  void _snapActionsToEdge() {
+    if (_actionsOffset == null) return;
+    try {
+      final box =
+          _webviewStackKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null) return;
+      final w = box.size.width;
+      final h = box.size.height;
+      final actionBox =
+          _actionsKey.currentContext?.findRenderObject() as RenderBox?;
+      final actionW = actionBox?.size.width ?? 80.0;
+      final actionH = actionBox?.size.height ?? 56.0;
+      final maxX = (w - actionW).clamp(0.0, double.infinity);
+      final maxY = (h - actionH).clamp(0.0, double.infinity);
+      final dx = _actionsOffset!.dx.clamp(0.0, maxX);
+      final dy = _actionsOffset!.dy.clamp(0.0, maxY);
+
+      double leftDist = dx;
+      double rightDist = (maxX - dx).abs();
+      double topDist = dy;
+      double bottomDist = (maxY - dy).abs();
+
+      // Find minimum distance
+      double minDist = leftDist;
+      String edge = 'left';
+      if (rightDist < minDist) {
+        minDist = rightDist;
+        edge = 'right';
+      }
+      if (topDist < minDist) {
+        minDist = topDist;
+        edge = 'top';
+      }
+      if (bottomDist < minDist) {
+        minDist = bottomDist;
+        edge = 'bottom';
+      }
+
+      double finalDx = dx;
+      double finalDy = dy;
+      switch (edge) {
+        case 'left':
+          finalDx = 0.0;
+          finalDy = dy.clamp(0.0, maxY);
+          break;
+        case 'right':
+          finalDx = maxX;
+          finalDy = dy.clamp(0.0, maxY);
+          break;
+        case 'top':
+          finalDy = 0.0;
+          finalDx = dx.clamp(0.0, maxX);
+          break;
+        case 'bottom':
+          finalDy = maxY;
+          finalDx = dx.clamp(0.0, maxX);
+          break;
+      }
+
+      setState(() => _actionsOffset = Offset(finalDx, finalDy));
+    } catch (_) {}
   }
 }

@@ -22,4 +22,8 @@
   "notStarted": "服务暂未启动",
   "startHint": "请先从 Dashboard 主面板启动服务。",
   "goToDashboard": "去主面板"
+  ,
+  "back": "后退",
+  "forward": "前进",
+  "refresh": "刷新"
 }

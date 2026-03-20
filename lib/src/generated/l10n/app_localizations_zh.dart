@@ -73,4 +73,13 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get goToDashboard => '去主面板';
+
+  @override
+  String get back => '后退';
+
+  @override
+  String get forward => '前进';
+
+  @override
+  String get refresh => '刷新';
 }

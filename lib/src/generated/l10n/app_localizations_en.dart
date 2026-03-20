@@ -73,4 +73,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get goToDashboard => 'Go to Dashboard';
+
+  @override
+  String get back => 'Back';
+
+  @override
+  String get forward => 'Forward';
+
+  @override
+  String get refresh => 'Refresh';
 }

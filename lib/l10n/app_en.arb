@@ -25,4 +25,8 @@
   "notStarted": "Service Not Started",
   "startHint": "Please start the service from the dashboard first.",
   "goToDashboard": "Go to Dashboard"
+  ,
+  "back": "Back",
+  "forward": "Forward",
+  "refresh": "Refresh"
 }
