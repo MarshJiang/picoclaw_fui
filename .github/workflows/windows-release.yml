@@ -58,12 +58,24 @@ jobs:
         run: |
           Compress-Archive -Path 'build\\windows\\x64\\runner\\Release\\*' -DestinationPath 'picoclaw_flutter_ui-release.zip' -Force
 
+      - name: Prepare release metadata
+        shell: powershell
+        id: vars
+        run: |
+          # Compute timestamp and short commit SHA
+          $now = Get-Date -Format 'yyyyMMdd-HHmmss'
+          $short = git rev-parse --short=6 HEAD
+          $tag = "picoclaw_fui-$now-$short"
+          Write-Output "Computed release tag: $tag"
+          # Write outputs for later steps
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "release_tag=$tag"
+
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         with:
-          tag_name: windows-release-${{ github.run_number }}
-          release_name: Windows release ${{ github.run_number }}
+          tag_name: ${{ steps.vars.outputs.release_tag }}
+          release_name: ${{ steps.vars.outputs.release_tag }}
           draft: false
           prerelease: false
         env:
