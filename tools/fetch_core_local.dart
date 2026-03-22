@@ -426,8 +426,9 @@ Future<void> main(List<String> args) async {
     installDest = destOverride;
   } else if (installToBuild) {
     if (Platform.isWindows) {
+      // CI packages Windows at build/windows/x64/runner/Release, so install there
       installDest =
-          'build${Platform.pathSeparator}windows${Platform.pathSeparator}runner${Platform.pathSeparator}Release';
+          'build${Platform.pathSeparator}windows${Platform.pathSeparator}x64${Platform.pathSeparator}runner${Platform.pathSeparator}Release';
     } else if (Platform.isMacOS) {
       installDest =
           'build${Platform.pathSeparator}macos${Platform.pathSeparator}Build${Platform.pathSeparator}Products${Platform.pathSeparator}Release';
@@ -441,12 +442,17 @@ Future<void> main(List<String> args) async {
     try {
       final instDir = Directory(installDest);
       await instDir.create(recursive: true);
-      // copy all installed names into the build output
+      // Preserve the out-dir path (typically app/bin) inside the build output
+      final relativeOut = outDir.replaceAll(RegExp(r'[\\/]+'), Platform.pathSeparator);
+      final targetDir = '${instDir.path}${Platform.pathSeparator}$relativeOut';
+      final td = Directory(targetDir);
+      await td.create(recursive: true);
+      // copy all installed names into the build output under the preserved out-dir
       for (final n in copiedNames) {
         final src = File(
           '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
         );
-        final targetPath = '${instDir.path}${Platform.pathSeparator}$n';
+        final targetPath = '$targetDir${Platform.pathSeparator}$n';
         if (await src.exists()) {
           await src.copy(targetPath);
           if (!Platform.isWindows) {
@@ -457,12 +463,11 @@ Future<void> main(List<String> args) async {
         }
       }
       // Also write version.txt next to installed binary for traceability
-      await File(
-        '${instDir.path}${Platform.pathSeparator}version.txt',
-      ).writeAsString(versionContents.toString().trim(), flush: true);
-      stdout.writeln(
-        'Copied ${copiedNames.join(', ')} to build output: $installDest',
+      await File('${td.path}${Platform.pathSeparator}version.txt').writeAsString(
+        versionContents.toString().trim(),
+        flush: true,
       );
+      stdout.writeln('Copied ${copiedNames.join(', ')} to build output: ${td.path}');
     } catch (e) {
       stderr.writeln('Failed to copy to install target $installDest: $e');
       exit(6);
