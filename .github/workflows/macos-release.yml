@@ -1,0 +1,54 @@
+name: Build macOS Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Fetch/install core and build macOS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          flutter pub run tools/fetch_core_local.dart --repo sipeed/picoclaw --tag latest --out-dir app/bin --platform macos --arch ${{ matrix.arch }} --build-mode release --install-to-build
+
+      - name: Package build outputs
+        run: |
+          now=$(date -u +%y%m%d)
+          short=$(git rev-parse --short=6 $GITHUB_SHA)
+          base_no_prefix="$now-$short"
+          dest="picoclaw_fui-${base_no_prefix}-macos-${{ matrix.arch }}.zip"
+          rm -f "$dest" || true
+          if [ -d "build/macos/Build/Products/Release" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "build/macos/Build/Products/Release" "$dest"
+          else
+            echo "Release output not found"; exit 1
+          fi
+
+      - name: Upload macOS ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw_fui-macos-${{ matrix.arch }}
+          path: picoclaw_fui-*-macos-${{ matrix.arch }}.zip
