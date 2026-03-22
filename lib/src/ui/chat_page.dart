@@ -19,7 +19,6 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> {
   static const _gatewayHost = '127.0.0.1';
   static const _gatewayPort = 18790;
-  static const _prefsName = 'picoclaw_chat';
   static const _keySessionId = 'session_id';
 
   final _messageController = TextEditingController();
@@ -68,9 +67,7 @@ class _ChatPageState extends State<ChatPage> {
       );
       _channel = IOWebSocketChannel.connect(
         uri,
-        headers: {
-          'Authorization': 'Bearer $_picoToken',
-        },
+        headers: {'Authorization': 'Bearer $_picoToken'},
       );
 
       _subscription = _channel!.stream.listen(
@@ -90,32 +87,38 @@ class _ChatPageState extends State<ChatPage> {
               _isConnected = false;
               _isSending = false;
             });
-            _addMessage(_ChatMessage(
-              '❌ 连接失败: $error\n请确保 PicoClaw 服务正在运行。',
-              _Role.assistant,
-            ));
+            _addMessage(
+              _ChatMessage(
+                '❌ 连接失败: $error\n请确保 PicoClaw 服务正在运行。',
+                _Role.assistant,
+              ),
+            );
           }
         },
       );
 
       // WebSocketChannel.connect 成功后不会触发 onOpen 回调，
       // 通过监听 ready future 来确认连接成功
-      _channel!.ready.then((_) {
-        if (mounted) {
-          setState(() {
-            _isConnected = true;
-            _messages.clear();
+      _channel!.ready
+          .then((_) {
+            if (mounted) {
+              setState(() {
+                _isConnected = true;
+                _messages.clear();
+              });
+              _addMessage(
+                _ChatMessage('你好！我是 AI 助手，有什么可以帮你的？', _Role.assistant),
+              );
+            }
+          })
+          .catchError((e) {
+            if (mounted) {
+              setState(() {
+                _isConnected = false;
+              });
+              _addMessage(_ChatMessage('❌ 连接失败: $e', _Role.assistant));
+            }
           });
-          _addMessage(_ChatMessage('你好！我是 AI 助手，有什么可以帮你的？', _Role.assistant));
-        }
-      }).catchError((e) {
-        if (mounted) {
-          setState(() {
-            _isConnected = false;
-          });
-          _addMessage(_ChatMessage('❌ 连接失败: $e', _Role.assistant));
-        }
-      });
     } catch (e) {
       _addMessage(_ChatMessage('❌ 连接错误: $e', _Role.assistant));
     }
@@ -149,7 +152,9 @@ class _ChatPageState extends State<ChatPage> {
           break;
         case 'typing.start':
           if (!_messages.any((m) => m.isThinking)) {
-            _addMessage(_ChatMessage('正在思考...', _Role.assistant, isThinking: true));
+            _addMessage(
+              _ChatMessage('正在思考...', _Role.assistant, isThinking: true),
+            );
           }
           break;
         case 'typing.stop':
@@ -196,9 +201,9 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty) return;
 
     if (!_isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未连接到 AI 服务，正在重连...')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未连接到 AI 服务，正在重连...')));
       _connectToGateway();
       return;
     }
@@ -272,8 +277,7 @@ class _ChatPageState extends State<ChatPage> {
             margin: const EdgeInsets.only(right: 8),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: (_isConnected ? Colors.green : Colors.red)
-                  .withAlpha(30),
+              color: (_isConnected ? Colors.green : Colors.red).withAlpha(30),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -410,8 +414,9 @@ class _MessageBubble extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isUser) ...[

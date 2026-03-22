@@ -12,7 +12,11 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
   final String? configuredPath;
   void Function(String)? _logHandler;
 
-  DesktopCoreServiceAdapter({required this.binaryName, required this.port, this.configuredPath});
+  DesktopCoreServiceAdapter({
+    required this.binaryName,
+    required this.port,
+    this.configuredPath,
+  });
   String? _lastErrorCode;
 
   Future<String?> _resolveExePath() async {
@@ -23,7 +27,10 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
 
     final binDir = p.join(Directory.current.path, 'app', 'bin');
     // Prefer the launcher binary when present (picoclaw-launcher / picoclaw-launcher.exe)
-    final launcherCandidates = [p.join(binDir, 'picoclaw-launcher'), p.join(binDir, 'picoclaw-launcher.exe')];
+    final launcherCandidates = [
+      p.join(binDir, 'picoclaw-launcher'),
+      p.join(binDir, 'picoclaw-launcher.exe'),
+    ];
     for (final cand in launcherCandidates) {
       if (await File(cand).exists()) return cand;
     }
@@ -38,7 +45,11 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
           if (await File(cand).exists()) return cand;
         }
       }
-      final platformToken = Platform.isWindows ? 'windows' : Platform.isMacOS ? 'macos' : 'linux';
+      final platformToken = Platform.isWindows
+          ? 'windows'
+          : Platform.isMacOS
+          ? 'macos'
+          : 'linux';
       for (final line in await vfile.readAsLines()) {
         final parts = line.trim().split(RegExp(r'\s+'));
         if (parts.isEmpty) continue;
@@ -89,7 +100,11 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
             if (await File(cand).exists()) return cand;
           }
         }
-        final platformToken = Platform.isWindows ? 'windows' : Platform.isMacOS ? 'macos' : 'linux';
+        final platformToken = Platform.isWindows
+            ? 'windows'
+            : Platform.isMacOS
+            ? 'macos'
+            : 'linux';
         for (final line in await altV.readAsLines()) {
           final parts = line.trim().split(RegExp(r'\s+'));
           if (parts.isEmpty) continue;
@@ -122,7 +137,10 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
 
     final pathEnv = Platform.environment['PATH'] ?? '';
     for (final dir in pathEnv.split(Platform.isWindows ? ';' : ':')) {
-      final pLauncher = p.join(dir, Platform.isWindows ? 'picoclaw-launcher.exe' : 'picoclaw-launcher');
+      final pLauncher = p.join(
+        dir,
+        Platform.isWindows ? 'picoclaw-launcher.exe' : 'picoclaw-launcher',
+      );
       if (await File(pLauncher).exists()) return pLauncher;
       final pth = p.join(dir, binaryName);
       if (await File(pth).exists()) return pth;
@@ -151,16 +169,23 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
     } else if (Platform.isLinux) {
       // On Linux we attempt to kill any process listening on the port using lsof if available
       try {
-        await Process.run('sh', ['-c', "lsof -ti tcp:$port | xargs -r kill -9"]);
+        await Process.run('sh', [
+          '-c',
+          "lsof -ti tcp:$port | xargs -r kill -9",
+        ]);
       } catch (_) {}
     }
   }
 
   Future<void> _pipe(Process proc) async {
-    proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((l) {
+    proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((
+      l,
+    ) {
       _appendLog(l);
     });
-    proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((l) {
+    proc.stderr.transform(utf8.decoder).transform(const LineSplitter()).listen((
+      l,
+    ) {
       _appendLog('ERR: $l');
     });
     proc.exitCode.then((c) {
@@ -190,7 +215,9 @@ class DesktopCoreServiceAdapter implements CoreServiceAdapter {
     final exe = await _resolveExePath();
     if (exe == null) {
       _lastErrorCode = 'core.binary_missing';
-      _appendLog('Core binary not found. Place the platform binary into app/bin/ and ensure app/bin/version.txt lists it, or set the binary path in settings.');
+      _appendLog(
+        'Core binary not found. Place the platform binary into app/bin/ and ensure app/bin/version.txt lists it, or set the binary path in settings.',
+      );
       return false;
     }
     if (!Platform.isWindows) {

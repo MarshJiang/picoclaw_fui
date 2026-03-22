@@ -9,7 +9,6 @@ import 'package:picoclaw_flutter_ui/src/core/app_theme.dart';
 import 'package:picoclaw_flutter_ui/src/ui/dashboard_page.dart';
 import 'package:picoclaw_flutter_ui/src/ui/config_page.dart';
 import 'package:picoclaw_flutter_ui/src/ui/webview_page.dart';
-import 'package:picoclaw_flutter_ui/src/ui/chat_page.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:windows_single_instance/windows_single_instance.dart';

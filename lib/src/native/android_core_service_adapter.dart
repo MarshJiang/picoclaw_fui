@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 import 'core_service_adapter.dart';
 
 class AndroidCoreServiceAdapter implements CoreServiceAdapter {
-  static const MethodChannel _channel = MethodChannel('io.picoclaw.client/picoclaw');
+  static const MethodChannel _channel = MethodChannel(
+    'io.picoclaw.client/picoclaw',
+  );
   String? _lastErrorCode;
   // Stored log handler (not used on Android native adapter, but kept for API compatibility)
   // ignore: unused_field
@@ -51,7 +53,9 @@ class AndroidCoreServiceAdapter implements CoreServiceAdapter {
   @override
   Future<bool> setAutoStart(bool enabled) async {
     try {
-      final r = await _channel.invokeMethod<bool>('setAutoStart', {'enabled': enabled});
+      final r = await _channel.invokeMethod<bool>('setAutoStart', {
+        'enabled': enabled,
+      });
       return r ?? false;
     } catch (_) {
       _lastErrorCode = 'core.set_autostart_failed';

@@ -143,7 +143,9 @@ class _ConfigPageState extends State<ConfigPage> {
                       final local = AppLocalizations.of(context)!;
                       return OutlinedButton(
                         onPressed: () async {
-                          final code = await service.validateBinary(_pathController.text);
+                          final code = await service.validateBinary(
+                            _pathController.text,
+                          );
                           String msg;
                           if (code) {
                             msg = local.coreValid;
@@ -215,9 +217,7 @@ class _ConfigPageState extends State<ConfigPage> {
                           msg = l.coreUnknownError(code);
                         }
 
-                        messenger.showSnackBar(
-                          SnackBar(content: Text(msg)),
-                        );
+                        messenger.showSnackBar(SnackBar(content: Text(msg)));
                       }
                     }
                   }

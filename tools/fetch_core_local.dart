@@ -211,16 +211,18 @@ Future<void> main(List<String> args) async {
       }
       if (nameLower.contains('_${platformToken}_') ||
           (nameLower.startsWith('picoclaw_') &&
-              nameLower.contains(platformToken)))
+              nameLower.contains(platformToken))) {
         score += 8;
+      }
       if (nameLower.contains(archLower)) score += 4;
-      if (score > 0)
+      if (score > 0) {
         scored.add({
           'score': score,
           'name': name,
           'url': a['browser_download_url'],
           'nameLower': nameLower,
         });
+      }
     }
     if (scored.isEmpty) {
       for (final a in assets) {
@@ -394,10 +396,15 @@ Future<void> main(List<String> args) async {
     copiedNames.add(destName);
   }
 
-  if (foundLauncher != null) await copyIfPresent(foundLauncher);
-  if (foundCore != null) await copyIfPresent(foundCore);
-  if (copiedNames.isEmpty && fallbackExecutable != null)
+  if (foundLauncher != null) {
+    await copyIfPresent(foundLauncher);
+  }
+  if (foundCore != null) {
+    await copyIfPresent(foundCore);
+  }
+  if (copiedNames.isEmpty && fallbackExecutable != null) {
     await copyIfPresent(fallbackExecutable);
+  }
 
   // Write a version.txt that records the asset and the installed binary names
   final versionContents = StringBuffer();
@@ -500,9 +507,12 @@ Future<String> detectArch() async {
     final envArch = Platform.environment['PROCESSOR_ARCHITECTURE'];
     if (envArch != null) {
       if (envArch.toLowerCase().contains('amd64') ||
-          envArch.toLowerCase().contains('x86_64'))
+          envArch.toLowerCase().contains('x86_64')) {
         return 'x86_64';
-      if (envArch.toLowerCase().contains('arm')) return 'arm64';
+      }
+      if (envArch.toLowerCase().contains('arm')) {
+        return 'arm64';
+      }
       return envArch;
     }
   }
@@ -510,8 +520,12 @@ Future<String> detectArch() async {
     final pr = await Process.run('uname', ['-m']);
     if (pr.exitCode == 0) {
       final out = (pr.stdout as String).trim();
-      if (out == 'x86_64' || out == 'amd64') return 'x86_64';
-      if (out.contains('arm') || out.contains('aarch64')) return 'arm64';
+      if (out == 'x86_64' || out == 'amd64') {
+        return 'x86_64';
+      }
+      if (out.contains('arm') || out.contains('aarch64')) {
+        return 'arm64';
+      }
       return out;
     }
   } catch (_) {}
@@ -522,10 +536,13 @@ Future<void> downloadToFile(Uri url, File file, String token) async {
   final client = http.Client();
   try {
     final req = http.Request('GET', url);
-    if (token.isNotEmpty) req.headers['Authorization'] = 'token $token';
+    if (token.isNotEmpty) {
+      req.headers['Authorization'] = 'token $token';
+    }
     final streamed = await client.send(req);
-    if (streamed.statusCode != 200)
+    if (streamed.statusCode != 200) {
       throw HttpException('Download failed: ${streamed.statusCode}');
+    }
     final sink = file.openWrite();
     await streamed.stream.pipe(sink);
     await sink.close();
@@ -551,8 +568,9 @@ Future<String?> resolveAssetUrl(
   final data = json.decode(resp.body) as Map<String, dynamic>;
   final assets = (data['assets'] as List).cast<Map<String, dynamic>>();
   for (final a in assets) {
-    if ((a['name'] as String) == name)
+    if ((a['name'] as String) == name) {
       return a['browser_download_url'] as String;
+    }
   }
   return null;
 }
