@@ -82,4 +82,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get refresh => 'Refresh';
+
+  @override
+  String get coreBinaryMissing =>
+      'Core binary not found. Place the platform binary into app/bin/ or set the path in Settings.';
+
+  @override
+  String get coreStartFailed => 'Failed to start core service.';
+
+  @override
+  String get coreStopFailed => 'Failed to stop core service.';
+
+  @override
+  String get coreInvalidBinary => 'Invalid core binary file.';
+
+  @override
+  String coreUnknownError(Object code) {
+    return 'Unknown core error: $code';
+  }
+
+  @override
+  String get coreValid => 'Core binary is valid.';
 }

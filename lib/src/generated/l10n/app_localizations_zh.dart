@@ -82,4 +82,24 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get refresh => '刷新';
+
+  @override
+  String get coreBinaryMissing => '未找到核心二进制文件。请将平台二进制放入 app/bin/ 或在设置中指定路径。';
+
+  @override
+  String get coreStartFailed => '启动核心服务失败。';
+
+  @override
+  String get coreStopFailed => '停止核心服务失败。';
+
+  @override
+  String get coreInvalidBinary => '核心二进制文件无效。';
+
+  @override
+  String coreUnknownError(Object code) {
+    return '未知的核心错误：$code';
+  }
+
+  @override
+  String get coreValid => '核心二进制文件有效。';
 }

@@ -29,4 +29,16 @@
   "back": "Back",
   "forward": "Forward",
   "refresh": "Refresh"
+  ,
+  "coreBinaryMissing": "Core binary not found. Place the platform binary into app/bin/ or set the path in Settings.",
+  "coreStartFailed": "Failed to start core service.",
+  "coreStopFailed": "Failed to stop core service.",
+  "coreInvalidBinary": "Invalid core binary file.",
+  "coreUnknownError": "Unknown core error: {code}",
+  "coreValid": "Core binary is valid.",
+  "@coreUnknownError": {
+    "placeholders": {
+      "code": {}
+    }
+  }
 }

@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'app_theme.dart';
 import 'picoclaw_channel.dart';
+import '../native/core_service_adapter_factory.dart';
+import '../native/core_service_adapter.dart';
 
 enum ServiceStatus { stopped, running, starting }
 
@@ -27,7 +28,11 @@ class ServiceManager extends ChangeNotifier {
     }
   }
 
-  Process? _process;
+  final CoreServiceAdapter _adapter = CoreServiceAdapterFactory.create();
+  String? _lastErrorCode;
+
+  String? get lastErrorCode => _lastErrorCode ?? _adapter.getLastErrorCode();
+
   ServiceStatus _status = ServiceStatus.stopped;
   final List<String> _logs = [];
 
@@ -82,6 +87,11 @@ class ServiceManager extends ChangeNotifier {
       } catch (_) {}
       _startAndroidPolling();
     }
+
+    // Register log handler so adapters can forward runtime logs to us
+    try {
+      _adapter.setLogHandler(_addLog);
+    } catch (_) {}
 
     notifyListeners();
   }
@@ -171,6 +181,21 @@ class ServiceManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Validate the configured or provided binary path via adapter.
+  Future<bool> validateBinary([String? path]) async {
+    String? checkPath;
+    if (path != null && path.isNotEmpty) {
+      checkPath = path;
+    } else if (_binaryPath.isNotEmpty) {
+      checkPath = _binaryPath;
+    }
+
+    final ok = await _adapter.validateBinary(checkPath);
+    _lastErrorCode = _adapter.getLastErrorCode();
+    notifyListeners();
+    return ok;
+  }
+
   Timer? _notifyTimer;
   final List<String> _pendingLogs = [];
 
@@ -207,12 +232,17 @@ class ServiceManager extends ChangeNotifier {
     // Android: 通过 MethodChannel 启动原生前台服务
     if (Platform.isAndroid) {
       try {
-        await PicoClawChannel.startService();
+        final ok = await _adapter.startService(port: _port, args: _arguments);
         _addLog('Starting PicoClaw native service...');
-        // 延迟同步状态，等待服务启动
+        // delay sync to wait for service start
         Future.delayed(const Duration(seconds: 2), () {
           _syncAndroidServiceStatus();
         });
+        if (!ok) {
+          _status = ServiceStatus.stopped;
+          _addLog('Failed to start native service');
+          notifyListeners();
+        }
       } catch (e) {
         _status = ServiceStatus.stopped;
         _addLog('Failed to start native service: $e');
@@ -221,74 +251,18 @@ class ServiceManager extends ChangeNotifier {
       return;
     }
 
-    // 桌面平台：保持原有的 Process.start 逻辑
+    // Desktop: delegate lifecycle to adapter
     try {
-      // 1. Cleanup existing process/port conflicts
-      if (Platform.isWindows) {
-        try {
-          final result = await Process.run('cmd', [
-            '/c',
-            'netstat -ano | findstr :$_port',
-          ]);
-          if (result.stdout.toString().isNotEmpty) {
-            final lines = result.stdout.toString().split('\n');
-            for (var line in lines) {
-              final parts = line.trim().split(RegExp(r'\s+'));
-              if (parts.length >= 5) {
-                final pid = parts.last;
-                await Process.run('taskkill', ['/F', '/PID', pid]);
-                _addLog(
-                  'Cleaned up existing process on port $_port (PID: $pid)',
-                );
-              }
-            }
-          }
-        } catch (_) {}
-      } else if (Platform.isLinux) {
-        await stop();
-      }
-
-      // 2. Resolve binary path
-      String exePath = _binaryPath;
-      if (exePath.isEmpty) {
-        exePath = 'picoclaw';
-        if (Platform.isWindows) exePath += '.exe';
-      }
-
-      final List<String> args = ['-port', _port.toString()];
-      if (_host == '0.0.0.0') {
-        args.add('-public');
-      }
-
-      if (_arguments.isNotEmpty) {
-        args.addAll(_arguments.split(' ').where((s) => s.isNotEmpty));
-      }
-
-      _process = await Process.start(exePath, args);
-
-      _status = ServiceStatus.running;
-      _addLog('Service started on $webUrl');
-
-      _process!.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-            _addLog(line);
-          });
-
-      _process!.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-            _addLog('ERROR: $line');
-          });
-
-      _process!.exitCode.then((exitCode) {
+      final ok = await _adapter.startService(port: _port, args: _arguments);
+      if (ok) {
+        _status = ServiceStatus.running;
+        _addLog('Service started on $webUrl');
+      } else {
         _status = ServiceStatus.stopped;
-        _addLog('Service stopped with exit code $exitCode');
-        _process = null;
-        notifyListeners();
-      });
+        final code = _adapter.getLastErrorCode();
+        _addLog('Failed to start service: ${code ?? 'unknown'}');
+      }
+      notifyListeners();
     } catch (e) {
       _status = ServiceStatus.stopped;
       _addLog('Failed to start service: $e');
@@ -300,7 +274,7 @@ class ServiceManager extends ChangeNotifier {
     // Android: 通过 MethodChannel 停止原生服务
     if (Platform.isAndroid) {
       try {
-        await PicoClawChannel.stopService();
+        await _adapter.stopService();
         _status = ServiceStatus.stopped;
         _addLog('Stopping PicoClaw native service...');
         notifyListeners();
@@ -310,11 +284,13 @@ class ServiceManager extends ChangeNotifier {
       return;
     }
 
-    // 桌面平台
-    if (_process != null) {
-      _process!.kill();
+    // Desktop
+    try {
+      await _adapter.stopService();
       _status = ServiceStatus.stopped;
       notifyListeners();
+    } catch (e) {
+      _addLog('Failed to stop service: $e');
     }
   }
 

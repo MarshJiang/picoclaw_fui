@@ -112,27 +112,61 @@ class _ConfigPageState extends State<ConfigPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Builder(
-                builder: (ctx) {
-                  final cs = Theme.of(ctx).colorScheme;
-                  return ElevatedButton.icon(
-                    onPressed: _pickFile,
-                    icon: const Icon(Icons.folder_open),
-                    label: Text(l10n.browse),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      foregroundColor: cs.onPrimary,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 2,
-                    ),
-                  );
-                },
+              Column(
+                children: [
+                  Builder(
+                    builder: (ctx) {
+                      final cs = Theme.of(ctx).colorScheme;
+                      return ElevatedButton.icon(
+                        onPressed: _pickFile,
+                        icon: const Icon(Icons.folder_open),
+                        label: Text(l10n.browse),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: cs.primary,
+                          foregroundColor: cs.onPrimary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          elevation: 2,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Builder(
+                    builder: (ctx) {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final local = AppLocalizations.of(context)!;
+                      return OutlinedButton(
+                        onPressed: () async {
+                          final code = await service.validateBinary(_pathController.text);
+                          String msg;
+                          if (code) {
+                            msg = local.coreValid;
+                          } else {
+                            final ec = service.lastErrorCode;
+                            if (ec == 'core.binary_missing') {
+                              msg = local.coreBinaryMissing;
+                            } else if (ec == 'core.invalid_binary') {
+                              msg = local.coreInvalidBinary;
+                            } else if (ec == 'core.start_failed') {
+                              msg = local.coreStartFailed;
+                            } else {
+                              msg = local.coreUnknownError(ec ?? '');
+                            }
+                          }
+
+                          messenger.showSnackBar(SnackBar(content: Text(msg)));
+                        },
+                        child: Text('Check'),
+                      );
+                    },
+                  ),
+                ],
               ),
             ],
           ),
@@ -166,6 +200,25 @@ class _ConfigPageState extends State<ConfigPage> {
                       messenger.showSnackBar(
                         SnackBar(content: Text(savedL10n.save)),
                       );
+                      // If adapter reported an error code, show a localized hint.
+                      final code = service.lastErrorCode;
+                      if (code != null) {
+                        String msg;
+                        final l = savedL10n;
+                        if (code == 'core.binary_missing') {
+                          msg = l.coreBinaryMissing;
+                        } else if (code == 'core.start_failed') {
+                          msg = l.coreStartFailed;
+                        } else if (code == 'core.stop_failed') {
+                          msg = l.coreStopFailed;
+                        } else {
+                          msg = l.coreUnknownError(code);
+                        }
+
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(msg)),
+                        );
+                      }
                     }
                   }
                 },

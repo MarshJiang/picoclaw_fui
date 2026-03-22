@@ -247,6 +247,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Refresh'**
   String get refresh;
+
+  /// No description provided for @coreBinaryMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Core binary not found. Place the platform binary into app/bin/ or set the path in Settings.'**
+  String get coreBinaryMissing;
+
+  /// No description provided for @coreStartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to start core service.'**
+  String get coreStartFailed;
+
+  /// No description provided for @coreStopFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to stop core service.'**
+  String get coreStopFailed;
+
+  /// No description provided for @coreInvalidBinary.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid core binary file.'**
+  String get coreInvalidBinary;
+
+  /// No description provided for @coreUnknownError.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown core error: {code}'**
+  String coreUnknownError(Object code);
+
+  /// No description provided for @coreValid.
+  ///
+  /// In en, this message translates to:
+  /// **'Core binary is valid.'**
+  String get coreValid;
 }
 
 class _AppLocalizationsDelegate
