@@ -256,8 +256,131 @@ jobs:
           name: picoclaw_fui-${{ env.RELEASE_BASE }}-windows-x64.zip
           path: picoclaw_fui-${{ env.RELEASE_BASE }}-windows-x64.zip
 
+  build-linux:
+    runs-on: ubuntu-22.04
+    outputs:
+      release_base: ${{ steps.vars.outputs.release_base }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config build-essential \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            lld binutils libstdc++-12-dev libglu1-mesa
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('**/pubspec.yaml') }}
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Fetch core and build Linux release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          flutter pub run tools/fetch_core_local.dart --repo sipeed/picoclaw --tag latest --out-dir app/bin --platform linux --arch x86_64 --build-mode release --install-to-build || true
+          flutter build linux --release
+
+      - name: Prepare release metadata
+        id: vars
+        run: |
+          now=$(date -u +%y%m%d)
+          short=$(git rev-parse --short=6 $GITHUB_SHA)
+          base_no_prefix="$now-$short"
+          release_tag="picoclaw_fui-$base_no_prefix"
+          echo "release_base=$base_no_prefix" >> $GITHUB_OUTPUT
+          echo "RELEASE_BASE=$base_no_prefix" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$release_tag" >> $GITHUB_ENV
+
+      - name: Package Linux as .deb
+        run: |
+          set -e
+          PKG_NAME=picoclaw_fui
+          TAG=${RELEASE_BASE}
+          DEST=${PKG_NAME}-${TAG}-linux-x86_64.deb
+          PKGROOT=$PWD/pkg_root
+          rm -rf "$PKGROOT" "$DEST"
+          BUNDLE_DIR=build/linux/x64/release/bundle
+          if [ ! -d "$BUNDLE_DIR" ]; then echo "Bundle not found: $BUNDLE_DIR"; ls -la build/linux || true; exit 1; fi
+          mkdir -p "$PKGROOT/opt/${PKG_NAME}/${TAG}"
+          cp -r "$BUNDLE_DIR"/* "$PKGROOT/opt/${PKG_NAME}/${TAG}/"
+          # Include any fetched core binaries installed to app/bin
+          if [ -d app/bin ]; then
+            mkdir -p "$PKGROOT/opt/${PKG_NAME}/${TAG}/app/bin"
+            cp -r app/bin/* "$PKGROOT/opt/${PKG_NAME}/${TAG}/app/bin/" || true
+          fi
+          mkdir -p "$PKGROOT/usr/bin"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'set -e' \
+            'BASE=/opt/picoclaw_fui' \
+            'if [ -d "$BASE" ]; then' \
+            '  DIRNAME=$(ls -1 "$BASE" 2>/dev/null | sort -V | tail -n1)' \
+            '  if [ -n "$DIRNAME" ] && [ -d "$BASE/$DIRNAME" ]; then' \
+            '    DIR="$BASE/$DIRNAME"' \
+            '  else' \
+            '    DIR="$BASE"' \
+            '  fi' \
+            'else' \
+            '  DIR="$BASE"' \
+            'fi' \
+            '# Ensure plugin/shared libs in the bundle are discoverable' \
+            'cd "$DIR" || true' \
+            'export BASE="$DIR"' \
+            'export LD_LIBRARY_PATH="$DIR/lib:$DIR/plugins:$LD_LIBRARY_PATH"' \
+            'exec "$DIR/picoclaw_flutter_ui" "$@"' > "$PKGROOT/usr/bin/${PKG_NAME}"
+          chmod 0755 "$PKGROOT/usr/bin/${PKG_NAME}"
+          mkdir -p "$PKGROOT/DEBIAN"
+          # Install icon and desktop entry
+          mkdir -p "$PKGROOT/usr/share/icons/hicolor/128x128/apps"
+          mkdir -p "$PKGROOT/usr/share/applications"
+          if [ -f assets/app_icon.png ]; then
+            cp assets/app_icon.png "$PKGROOT/usr/share/icons/hicolor/128x128/apps/picoclaw_fui.png"
+          fi
+          printf '%s\n' \
+            "[Desktop Entry]" \
+            "Name=PicoClaw FUI" \
+            "Exec=/usr/bin/picoclaw_fui %U" \
+            "Icon=picoclaw_fui" \
+            "Type=Application" \
+            "Categories=Utility;" \
+            "Terminal=false" > "$PKGROOT/usr/share/applications/picoclaw_fui.desktop"
+
+          printf '%s\n' \
+            "Package: picoclaw-fui" \
+            "Version: ${TAG}" \
+            "Section: utils" \
+            "Priority: optional" \
+            "Architecture: amd64" \
+            "Maintainer: GitHub Actions <actions@github.com>" \
+            "Description: PicoClaw FUI" > "$PKGROOT/DEBIAN/control"
+          # Update icon cache if available (ignore errors)
+          if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+            gtk-update-icon-cache -f "$PKGROOT/usr/share/icons/hicolor" || true
+          fi
+          dpkg-deb --build "$PKGROOT" "$DEST"
+
+      - name: Upload Linux .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw_fui-${{ env.RELEASE_BASE }}-linux-x86_64.deb
+          path: picoclaw_fui-${{ env.RELEASE_BASE }}-linux-x86_64.deb
+
   publish:
-    needs: [build-android, build-windows, build-macos]
+    needs: [build-android, build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -289,5 +412,6 @@ jobs:
             picoclaw_fui-${{ env.RELEASE_BASE }}-android-universal.apk
             picoclaw_fui-${{ env.RELEASE_BASE }}-windows-x64.zip
             picoclaw_fui-${{ env.RELEASE_BASE }}-macos-arm64.dmg
+            picoclaw_fui-${{ env.RELEASE_BASE }}-linux-x86_64.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
