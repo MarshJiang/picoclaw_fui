@@ -27,6 +27,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get logs => 'Logs';
 
   @override
+  String get viewLogs => 'View Logs';
+
+  @override
   String get statusRunning => 'Running';
 
   @override
@@ -103,4 +106,52 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get coreValid => 'Core binary is valid.';
+
+  @override
+  String get publicMode => 'Public Mode';
+
+  @override
+  String get publicModeHintDesc =>
+      'When enabled, the service allows external access and the address field will be disabled';
+
+  @override
+  String get themeSelection => 'Theme';
+
+  @override
+  String get check => 'Check';
+
+  @override
+  String get launchService => 'LAUNCH SERVICE';
+
+  @override
+  String get stopService => 'STOP SERVICE';
+
+  @override
+  String get endpoint => 'ENDPOINT';
+
+  @override
+  String get statusActive => 'ACTIVE';
+
+  @override
+  String get statusSyncing => 'SYNCING';
+
+  @override
+  String get statusIdle => 'IDLE';
+
+  @override
+  String get publicModeEnabled => 'Public Mode Enabled';
+
+  @override
+  String get localMode => 'Local Mode';
+
+  @override
+  String get unableToGetDeviceIp => 'Unable to get device IP';
+
+  @override
+  String get localModeHint =>
+      '1. Go to Service Config\n2. Turn on Public Mode\n3. Restart the service\n4. Scan QR code to access PicoClaw';
+
+  @override
+  String get publicModeHint =>
+      '1. Start the service\n2. Scan QR code to access PicoClaw';
 }
