@@ -303,7 +303,12 @@ class ServiceManager extends ChangeNotifier {
     if (_publicMode && !launchArgs.contains('-public')) {
       launchArgs = launchArgs.isEmpty ? '-public' : '$launchArgs -public';
     }
-
+    //with -no-browser to prevent auto-opening browser, as we want users to open web console manually
+    if (!launchArgs.contains('-no-browser')) {
+      launchArgs = launchArgs.isEmpty
+          ? '-no-browser'
+          : '$launchArgs -no-browser';
+    }
     // Android: 通过 MethodChannel 启动原生前台服务
     if (Platform.isAndroid) {
       try {
