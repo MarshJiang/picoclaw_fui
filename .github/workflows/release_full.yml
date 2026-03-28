@@ -84,17 +84,18 @@ jobs:
             echo "No signing configuration found, using debug signature"
           fi
 
-      - name: Build Android AAB, fetch/install core, and package
+      - name: fetch/install core
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           flutter pub run tools/fetch_core_local.dart --repo sipeed/picoclaw --tag latest --out-dir app/bin --platform android --arch arm64 --build-mode release --install-to-build
 
-      - name: Build Android APK (release) and fetch/install core
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          flutter pub run tools/fetch_core_local.dart --repo sipeed/picoclaw --tag latest --out-dir app/bin --platform android --arch arm64 --build-mode release --install-to-build
+      - name: Build Android App Bundle (AAB)
+        run: flutter build appbundle --release --target-platform android-arm,android-arm64
+
+      - name: Build Android APK (release)
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+
 
       - name: Verify APK Signature
         if: env.KEYSTORE_PATH != ''
