@@ -791,103 +791,52 @@ Future<void> installToBuildOutputs(
   for (final target in installTargets) {
     final instDir = Directory(target);
     await instDir.create(recursive: true);
-    if (Platform.isMacOS) {
-      final apps = instDir
-          .listSync()
-          .whereType<Directory>()
-          .where((d) => d.path.toLowerCase().endsWith('.app'))
-          .toList();
-      if (apps.isEmpty) {
-        throw Exception(
-          'No .app found under install destination: ${instDir.path}',
-        );
-      }
 
-      final app = apps.first;
-      final macosBinDir = Directory(
-        '${app.path}${Platform.pathSeparator}Contents${Platform.pathSeparator}MacOS${Platform.pathSeparator}bin',
+    // Unified install for unix-like and other platforms: copy the extracted
+    // binaries under the build output relative path. This keeps macOS and
+    // Linux behavior identical (no .app/.appdir special-casing).
+    final relativeOut = outDir.replaceAll(
+      RegExp(r'[\\/]+'),
+      Platform.pathSeparator,
+    );
+    final targetDir = '${instDir.path}${Platform.pathSeparator}$relativeOut';
+    final td = Directory(targetDir);
+    await td.create(recursive: true);
+    for (final n in copiedNames) {
+      final src = File(
+        '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
       );
-      await macosBinDir.create(recursive: true);
-
-      for (final n in copiedNames) {
-        final src = File(
-          '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
-        );
-        final targetPath = '${macosBinDir.path}${Platform.pathSeparator}$n';
-        if (await src.exists()) {
-          final targetFile = File(targetPath);
-          await targetFile.parent.create(recursive: true);
+      final targetPath = '$targetDir${Platform.pathSeparator}$n';
+      if (await src.exists()) {
+        final targetFile = File(targetPath);
+        await targetFile.parent.create(recursive: true);
+        try {
+          final sink = targetFile.openWrite();
+          await src.openRead().pipe(sink);
+          await sink.close();
+        } catch (_) {
           try {
-            final sink = targetFile.openWrite();
-            await src.openRead().pipe(sink);
-            await sink.close();
+            final bytes = await src.readAsBytes();
+            await targetFile.writeAsBytes(bytes, flush: true);
           } catch (_) {
             try {
-              final bytes = await src.readAsBytes();
-              await targetFile.writeAsBytes(bytes, flush: true);
-            } catch (_) {
-              try {
-                if (await targetFile.exists()) await targetFile.delete();
-                await src.copy(targetFile.path);
-              } catch (_) {}
-            }
+              if (await targetFile.exists()) await targetFile.delete();
+              await src.copy(targetFile.path);
+            } catch (_) {}
           }
+        }
+        if (!Platform.isWindows) {
           try {
             await Process.run('chmod', ['+x', targetFile.path]);
           } catch (_) {}
         }
       }
-
-      await File(
-        '${macosBinDir.path}${Platform.pathSeparator}version.txt',
-      ).writeAsString(versionText, flush: true);
-      stdout.writeln(
-        'Copied ${copiedNames.join(', ')} into app bundle: ${macosBinDir.path}',
-      );
-    } else {
-      final relativeOut = outDir.replaceAll(
-        RegExp(r'[\\/]+'),
-        Platform.pathSeparator,
-      );
-      final targetDir = '${instDir.path}${Platform.pathSeparator}$relativeOut';
-      final td = Directory(targetDir);
-      await td.create(recursive: true);
-      for (final n in copiedNames) {
-        final src = File(
-          '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
-        );
-        final targetPath = '$targetDir${Platform.pathSeparator}$n';
-        if (await src.exists()) {
-          final targetFile = File(targetPath);
-          await targetFile.parent.create(recursive: true);
-          try {
-            final sink = targetFile.openWrite();
-            await src.openRead().pipe(sink);
-            await sink.close();
-          } catch (_) {
-            try {
-              final bytes = await src.readAsBytes();
-              await targetFile.writeAsBytes(bytes, flush: true);
-            } catch (_) {
-              try {
-                if (await targetFile.exists()) await targetFile.delete();
-                await src.copy(targetFile.path);
-              } catch (_) {}
-            }
-          }
-          if (!Platform.isWindows) {
-            try {
-              await Process.run('chmod', ['+x', targetFile.path]);
-            } catch (_) {}
-          }
-        }
-      }
-      await File(
-        '${td.path}${Platform.pathSeparator}version.txt',
-      ).writeAsString(versionText, flush: true);
-      stdout.writeln(
-        'Copied ${copiedNames.join(', ')} to build output: ${td.path}',
-      );
     }
+    await File(
+      '${td.path}${Platform.pathSeparator}version.txt',
+    ).writeAsString(versionText, flush: true);
+    stdout.writeln(
+      'Copied ${copiedNames.join(', ')} to build output: ${td.path}',
+    );
   }
 }
