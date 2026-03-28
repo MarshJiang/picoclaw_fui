@@ -236,261 +236,75 @@ Future<void> main(List<String> args) async {
     exit(0);
   }
 
-  final tmpDir = await Directory.systemTemp.createTemp('fetch_core_local');
-  final archiveFile = File('${tmpDir.path}/asset');
-
-  stdout.writeln('Downloading $assetUrl');
-  await downloadToFile(Uri.parse(assetUrl), archiveFile, token);
-
-  stdout.writeln('Extracting archive');
-  final extractDir = Directory('${tmpDir.path}/extract');
-  await extractDir.create();
-
-  if (assetName.toLowerCase().endsWith('.zip')) {
-    final bytes = await archiveFile.readAsBytes();
-    final archive = ZipDecoder().decodeBytes(bytes);
-    for (final file in archive) {
-      final filePath = '${extractDir.path}/${file.name}';
-      if (file.isFile) {
-        final out = File(filePath);
-        await out.create(recursive: true);
-        await out.writeAsBytes(file.content as List<int>);
-      } else {
-        await Directory(filePath).create(recursive: true);
-      }
-    }
-  } else {
-    final bytes = await archiveFile.readAsBytes();
-    final gunz = GZipDecoder().decodeBytes(bytes);
-    final tar = TarDecoder().decodeBytes(gunz);
-    for (final f in tar.files) {
-      final filePath = '${extractDir.path}/${f.name}';
-      if (f.isFile) {
-        final out = File(filePath);
-        await out.create(recursive: true);
-        await out.writeAsBytes(f.content as List<int>);
-      } else {
-        await Directory(filePath).create(recursive: true);
-      }
-    }
-  }
-
-  // Find executables
-  File? foundLauncher;
-  File? foundCore;
-  File? fallbackExecutable;
-  await for (final entity in extractDir.list(
-    recursive: true,
-    followLinks: false,
-  )) {
-    if (entity is File) {
-      final name = entity.uri.pathSegments.last;
-      if (name == 'picoclaw-launcher' || name == 'picoclaw-launcher.exe') {
-        foundLauncher = entity;
-      }
-      if (name == 'picoclaw' || name == 'picoclaw.exe') {
-        foundCore = entity;
-      }
-      if (fallbackExecutable == null) {
-        if (Platform.isWindows) {
-          if (name.toLowerCase().endsWith('.exe')) fallbackExecutable = entity;
-        } else {
-          try {
-            final stat = await entity.stat();
-            if ((stat.mode & 0x49) != 0) {
-              // simple executable bit check
-              fallbackExecutable = entity;
-            }
-          } catch (_) {}
-        }
-      }
-    }
-  }
-  if (foundLauncher == null &&
-      foundCore == null &&
-      fallbackExecutable == null) {
-    stderr.writeln('Could not locate an executable in the archive');
-    await tmpDir.delete(recursive: true);
-    exit(5);
-  }
-
-  // Copy files to out-dir
-  final copiedNames = <String>[];
-  Future<void> copyIfPresent(File? src) async {
-    if (src == null) return;
-    final destName = src.uri.pathSegments.last;
-    final destFile = File(
-      '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$destName',
-    );
-    await destFile.create(recursive: true);
-    await src.copy(destFile.path);
-    if (!Platform.isWindows) {
-      try {
-        final pr = await Process.run('chmod', ['+x', destFile.path]);
-        if (pr.exitCode != 0) stdout.writeln('chmod returned ${pr.stderr}');
-      } catch (_) {}
-    }
-    copiedNames.add(destName);
-  }
-
-  if (foundLauncher != null) {
-    await copyIfPresent(foundLauncher);
-  }
-  if (foundCore != null) {
-    await copyIfPresent(foundCore);
-  }
-  if (copiedNames.isEmpty && fallbackExecutable != null) {
-    await copyIfPresent(fallbackExecutable);
-  }
-
-  // Write a version.txt that records the asset and the installed binary names
-  final versionContents = StringBuffer();
-  versionContents.writeln(assetName);
-  for (final n in copiedNames) {
-    versionContents.writeln(n);
-  }
-  await File(
-    '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}version.txt',
-  ).writeAsString(versionContents.toString().trim(), flush: true);
-
-  stdout.writeln(
-    'Installed ${copiedNames.join(', ')} to $outDir and wrote version.txt ($assetName)',
-  );
-
-  // Optionally install into a build output directory (also copy to Debug counterpart)
-  String? installDest;
-  if (destOverride.isNotEmpty) {
-    installDest = destOverride;
-  } else if (installToBuild) {
-    if (selectedPlatform == 'Windows') {
-      installDest =
-          'build${Platform.pathSeparator}windows${Platform.pathSeparator}x64${Platform.pathSeparator}runner${Platform.pathSeparator}Release';
-    } else if (selectedPlatform == 'Darwin') {
-      installDest =
-          'build${Platform.pathSeparator}macos${Platform.pathSeparator}Build${Platform.pathSeparator}Products${Platform.pathSeparator}Release';
-    } else if (selectedPlatform == 'Linux') {
-      installDest =
-          'build${Platform.pathSeparator}linux${Platform.pathSeparator}x64${Platform.pathSeparator}release${Platform.pathSeparator}bundle';
-    }
-  }
-
-  if (installDest != null && installDest.isNotEmpty) {
-    final installTargets = <String>[];
-    installTargets.add(installDest);
-
-    String? debugDest;
-    if (destOverride.isNotEmpty) {
-      if (installDest.contains('Release')) {
-        debugDest = installDest.replaceFirst('Release', 'Debug');
-      } else if (installDest.contains('release')) {
-        debugDest = installDest.replaceFirst('release', 'debug');
-      } else {
-        debugDest = installDest + Platform.pathSeparator + 'debug';
-      }
-    } else if (installToBuild) {
-      if (selectedPlatform == 'Windows') {
-        debugDest =
-            'build${Platform.pathSeparator}windows${Platform.pathSeparator}x64${Platform.pathSeparator}runner${Platform.pathSeparator}Debug';
-      } else if (selectedPlatform == 'Darwin') {
-        debugDest =
-            'build${Platform.pathSeparator}macos${Platform.pathSeparator}Build${Platform.pathSeparator}Products${Platform.pathSeparator}Debug';
-      } else if (selectedPlatform == 'Linux') {
-        debugDest =
-            'build${Platform.pathSeparator}linux${Platform.pathSeparator}x64${Platform.pathSeparator}debug${Platform.pathSeparator}bundle';
-      }
-    }
-
-    if (debugDest != null && debugDest.isNotEmpty && debugDest != installDest) {
-      installTargets.add(debugDest);
-    }
-
-    try {
-      for (final target in installTargets) {
-        final instDir = Directory(target);
-        await instDir.create(recursive: true);
-        if (Platform.isMacOS) {
-          final apps = instDir
-              .listSync()
-              .whereType<Directory>()
-              .where((d) => d.path.toLowerCase().endsWith('.app'))
-              .toList();
-          if (apps.isEmpty) {
-            throw Exception(
-              'No .app found under install destination: ${instDir.path}',
-            );
-          }
-
-          final app = apps.first;
-          final macosBinDir = Directory(
-            '${app.path}${Platform.pathSeparator}Contents${Platform.pathSeparator}MacOS${Platform.pathSeparator}bin',
-          );
-          await macosBinDir.create(recursive: true);
-
-          for (final n in copiedNames) {
-            final src = File(
-              '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
-            );
-            final targetPath = '${macosBinDir.path}${Platform.pathSeparator}$n';
-            if (await src.exists()) {
-              await src.copy(targetPath);
-              try {
-                await Process.run('chmod', ['+x', targetPath]);
-              } catch (_) {}
-            }
-          }
-
-          await File(
-            '${macosBinDir.path}${Platform.pathSeparator}version.txt',
-          ).writeAsString(versionContents.toString().trim(), flush: true);
-          stdout.writeln(
-            'Copied ${copiedNames.join(', ')} into app bundle: ${macosBinDir.path}',
-          );
-        } else {
-          final relativeOut = outDir.replaceAll(
-            RegExp(r'[\\/]+'),
-            Platform.pathSeparator,
-          );
-          final targetDir =
-              '${instDir.path}${Platform.pathSeparator}$relativeOut';
-          final td = Directory(targetDir);
-          await td.create(recursive: true);
-          for (final n in copiedNames) {
-            final src = File(
-              '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
-            );
-            final targetPath = '$targetDir${Platform.pathSeparator}$n';
-            if (await src.exists()) {
-              await src.copy(targetPath);
-              if (!Platform.isWindows) {
-                try {
-                  await Process.run('chmod', ['+x', targetPath]);
-                } catch (_) {}
-              }
-            }
-          }
-          await File(
-            '${td.path}${Platform.pathSeparator}version.txt',
-          ).writeAsString(versionContents.toString().trim(), flush: true);
-          stdout.writeln(
-            'Copied ${copiedNames.join(', ')} to build output: ${td.path}',
-          );
-        }
-      }
-    } catch (e) {
-      stderr.writeln(
-        'Failed to copy to install target(s) ${installTargets.join(', ')}: $e',
-      );
-      try {
-        if (await tmpDir.exists()) await tmpDir.delete(recursive: true);
-      } catch (_) {}
-      exit(6);
-    }
-  }
-
-  // Clean up temporary directory if it still exists.
+  // Download, extract, find executables, copy to out-dir, and (optionally)
+  // install into build outputs. These steps are encapsulated in helper
+  // functions added below.
+  ExtractResult? er;
   try {
-    if (await tmpDir.exists()) await tmpDir.delete(recursive: true);
-  } catch (_) {}
+    // Extract directly into `outDir` to avoid using a separate temporary
+    // extraction directory; this mirrors the previous behavior that worked
+    // around Windows file-locking in many environments.
+    er = await downloadAndExtract(
+      assetUrl,
+      assetName,
+      token,
+      extractTo: outDir,
+    );
+    final execs = await findExecutables(er.extractDir);
+    if (execs.launcher == null &&
+        execs.core == null &&
+        execs.fallback == null) {
+      stderr.writeln('Could not locate an executable in the archive');
+      try {
+        if (er?.usedTmp == true && er?.tmpDir != null) {
+          final tmpDirRef = er!.tmpDir!;
+          if (await tmpDirRef.exists()) await tmpDirRef.delete(recursive: true);
+        }
+      } catch (_) {}
+      exit(5);
+    }
+
+    final copyRes = await copyToOutDir(outDir, execs, assetName);
+    stdout.writeln(
+      'Installed ${copyRes.copiedNames.join(', ')} to $outDir and wrote version.txt ($assetName)',
+    );
+
+    final installTargets = computeInstallTargets(
+      selectedPlatform,
+      destOverride,
+      installToBuild,
+    );
+    if (installTargets.isNotEmpty) {
+      try {
+        await installToBuildOutputs(
+          installTargets,
+          selectedPlatform,
+          outDir,
+          copyRes.copiedNames,
+          copyRes.versionText,
+        );
+      } catch (e) {
+        stderr.writeln(
+          'Failed to copy to install target(s) ${installTargets.join(', ')}: $e',
+        );
+        try {
+          if (er?.usedTmp == true && er?.tmpDir != null) {
+            final tmpDirRef = er!.tmpDir!;
+            if (await tmpDirRef.exists())
+              await tmpDirRef.delete(recursive: true);
+          }
+        } catch (_) {}
+        exit(6);
+      }
+    }
+  } finally {
+    try {
+      if (er?.usedTmp == true && er?.tmpDir != null) {
+        final tmpDirRef = er!.tmpDir!;
+        if (await tmpDirRef.exists()) await tmpDirRef.delete(recursive: true);
+      }
+    } catch (_) {}
+  }
 
   // Optionally run a packager command (e.g., NSIS, codesign, dmg creation)
   if (packCmd.isNotEmpty) {
@@ -515,10 +329,7 @@ Future<void> main(List<String> args) async {
     }
   }
 
-  // Ensure temporary directory is removed (guarded, as it may have been removed earlier).
-  try {
-    if (await tmpDir.exists()) await tmpDir.delete(recursive: true);
-  } catch (_) {}
+  // Temporary directory already cleaned up in the extraction/install flow.
 }
 
 String detectPlatform() {
@@ -699,4 +510,384 @@ Future<String?> resolveAssetUrl(
     }
   }
   return null;
+}
+
+// Result of downloading and extracting an archive
+class ExtractResult {
+  final Directory? tmpDir;
+  final Directory extractDir;
+  final bool usedTmp;
+  ExtractResult(this.tmpDir, this.extractDir, this.usedTmp);
+}
+
+// Located executable files inside an extracted archive
+class Executables {
+  final File? launcher;
+  final File? core;
+  final File? fallback;
+  Executables(this.launcher, this.core, this.fallback);
+}
+
+class CopyResult {
+  final List<String> copiedNames;
+  final String versionText;
+  CopyResult(this.copiedNames, this.versionText);
+}
+
+Future<ExtractResult> downloadAndExtract(
+  String assetUrl,
+  String assetName,
+  String token, {
+  String? extractTo,
+}) async {
+  // If an explicit extractTo directory is provided, avoid creating a
+  // temporary directory and download the archive into memory, then
+  // extract directly into `extractTo` to prevent using a separate temp
+  // extraction location (Windows file-locking issues).
+  if (extractTo != null && extractTo.isNotEmpty) {
+    stdout.writeln('Downloading $assetUrl');
+    final headers = <String, String>{};
+    if (token.isNotEmpty) headers['Authorization'] = 'token $token';
+    final resp = await http.get(Uri.parse(assetUrl), headers: headers);
+    if (resp.statusCode != 200) {
+      throw HttpException('Download failed: ${resp.statusCode}');
+    }
+    final bytes = resp.bodyBytes;
+
+    stdout.writeln('Extracting archive');
+    final extractDir = Directory(extractTo);
+    await extractDir.create(recursive: true);
+
+    if (assetName.toLowerCase().endsWith('.zip')) {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      for (final file in archive) {
+        final filePath = '${extractDir.path}/${file.name}';
+        if (file.isFile) {
+          final out = File(filePath);
+          await out.create(recursive: true);
+          await out.writeAsBytes(file.content as List<int>);
+        } else {
+          await Directory(filePath).create(recursive: true);
+        }
+      }
+    } else {
+      final gunz = GZipDecoder().decodeBytes(bytes);
+      final tar = TarDecoder().decodeBytes(gunz);
+      for (final f in tar.files) {
+        final filePath = '${extractDir.path}/${f.name}';
+        if (f.isFile) {
+          final out = File(filePath);
+          await out.create(recursive: true);
+          await out.writeAsBytes(f.content as List<int>);
+        } else {
+          await Directory(filePath).create(recursive: true);
+        }
+      }
+    }
+
+    return ExtractResult(null, extractDir, false);
+  }
+
+  // Fallback: use a temporary directory for extraction.
+  final tmpDir = await Directory.systemTemp.createTemp('fetch_core_local');
+  final archiveFile = File('${tmpDir.path}/asset');
+
+  stdout.writeln('Downloading $assetUrl');
+  await downloadToFile(Uri.parse(assetUrl), archiveFile, token);
+
+  stdout.writeln('Extracting archive');
+  final extractDir = Directory('${tmpDir.path}/extract');
+  await extractDir.create(recursive: true);
+
+  if (assetName.toLowerCase().endsWith('.zip')) {
+    final bytes = await archiveFile.readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+    for (final file in archive) {
+      final filePath = '${extractDir.path}/${file.name}';
+      if (file.isFile) {
+        final out = File(filePath);
+        await out.create(recursive: true);
+        await out.writeAsBytes(file.content as List<int>);
+      } else {
+        await Directory(filePath).create(recursive: true);
+      }
+    }
+  } else {
+    final bytes = await archiveFile.readAsBytes();
+    final gunz = GZipDecoder().decodeBytes(bytes);
+    final tar = TarDecoder().decodeBytes(gunz);
+    for (final f in tar.files) {
+      final filePath = '${extractDir.path}/${f.name}';
+      if (f.isFile) {
+        final out = File(filePath);
+        await out.create(recursive: true);
+        await out.writeAsBytes(f.content as List<int>);
+      } else {
+        await Directory(filePath).create(recursive: true);
+      }
+    }
+  }
+
+  return ExtractResult(tmpDir, extractDir, true);
+}
+
+Future<Executables> findExecutables(Directory extractDir) async {
+  File? foundLauncher;
+  File? foundCore;
+  File? fallbackExecutable;
+  await for (final entity in extractDir.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    if (entity is File) {
+      final name = entity.uri.pathSegments.last;
+      if (name == 'picoclaw-launcher' || name == 'picoclaw-launcher.exe') {
+        foundLauncher = entity;
+      }
+      if (name == 'picoclaw' || name == 'picoclaw.exe') {
+        foundCore = entity;
+      }
+      if (fallbackExecutable == null) {
+        if (Platform.isWindows) {
+          if (name.toLowerCase().endsWith('.exe')) fallbackExecutable = entity;
+        } else {
+          try {
+            final stat = await entity.stat();
+            if ((stat.mode & 0x49) != 0) {
+              fallbackExecutable = entity;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+  }
+  return Executables(foundLauncher, foundCore, fallbackExecutable);
+}
+
+Future<CopyResult> copyToOutDir(
+  String outDir,
+  Executables execs,
+  String assetName,
+) async {
+  final copiedNames = <String>[];
+
+  Future<void> copyIfPresent(File? src) async {
+    if (src == null) return;
+    final destName = src.uri.pathSegments.last;
+    final destFile = File(
+      '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$destName',
+    );
+    await destFile.parent.create(recursive: true);
+
+    // Try writing by streaming to the destination (this truncates/overwrites).
+    try {
+      final sink = destFile.openWrite();
+      await src.openRead().pipe(sink);
+      await sink.close();
+    } catch (_) {
+      // Fallback: read bytes and write (also overwrites).
+      try {
+        final bytes = await src.readAsBytes();
+        await destFile.writeAsBytes(bytes, flush: true);
+      } catch (_) {
+        // Final fallback: attempt delete then copy; if that fails rethrow.
+        try {
+          if (await destFile.exists()) await destFile.delete();
+          await src.copy(destFile.path);
+        } catch (e) {
+          rethrow;
+        }
+      }
+    }
+
+    if (!Platform.isWindows) {
+      try {
+        final pr = await Process.run('chmod', ['+x', destFile.path]);
+        if (pr.exitCode != 0) stdout.writeln('chmod returned ${pr.stderr}');
+      } catch (_) {}
+    }
+
+    copiedNames.add(destName);
+  }
+
+  if (execs.launcher != null) await copyIfPresent(execs.launcher);
+  if (execs.core != null) await copyIfPresent(execs.core);
+  if (copiedNames.isEmpty && execs.fallback != null)
+    await copyIfPresent(execs.fallback);
+
+  final versionContents = StringBuffer();
+  versionContents.writeln(assetName);
+  for (final n in copiedNames) {
+    versionContents.writeln(n);
+  }
+  await File(
+    '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}version.txt',
+  ).writeAsString(versionContents.toString().trim(), flush: true);
+
+  return CopyResult(
+    List<String>.from(copiedNames),
+    versionContents.toString().trim(),
+  );
+}
+
+List<String> computeInstallTargets(
+  String selectedPlatform,
+  String destOverride,
+  bool installToBuild,
+) {
+  String? installDest;
+  if (destOverride.isNotEmpty) {
+    installDest = destOverride;
+  } else if (installToBuild) {
+    if (selectedPlatform == 'Windows') {
+      installDest =
+          'build${Platform.pathSeparator}windows${Platform.pathSeparator}x64${Platform.pathSeparator}runner${Platform.pathSeparator}Release';
+    } else if (selectedPlatform == 'Darwin') {
+      installDest =
+          'build${Platform.pathSeparator}macos${Platform.pathSeparator}Build${Platform.pathSeparator}Products${Platform.pathSeparator}Release';
+    } else if (selectedPlatform == 'Linux') {
+      installDest =
+          'build${Platform.pathSeparator}linux${Platform.pathSeparator}x64${Platform.pathSeparator}release${Platform.pathSeparator}bundle';
+    }
+  }
+
+  final installTargets = <String>[];
+  if (installDest != null && installDest.isNotEmpty) {
+    installTargets.add(installDest);
+    String? debugDest;
+    if (destOverride.isNotEmpty) {
+      if (installDest.contains('Release')) {
+        debugDest = installDest.replaceFirst('Release', 'Debug');
+      } else if (installDest.contains('release')) {
+        debugDest = installDest.replaceFirst('release', 'debug');
+      } else {
+        debugDest = '$installDest${Platform.pathSeparator}debug';
+      }
+    } else if (installToBuild) {
+      if (selectedPlatform == 'Windows') {
+        debugDest =
+            'build${Platform.pathSeparator}windows${Platform.pathSeparator}x64${Platform.pathSeparator}runner${Platform.pathSeparator}Debug';
+      } else if (selectedPlatform == 'Darwin') {
+        debugDest =
+            'build${Platform.pathSeparator}macos${Platform.pathSeparator}Build${Platform.pathSeparator}Products${Platform.pathSeparator}Debug';
+      } else if (selectedPlatform == 'Linux') {
+        debugDest =
+            'build${Platform.pathSeparator}linux${Platform.pathSeparator}x64${Platform.pathSeparator}debug${Platform.pathSeparator}bundle';
+      }
+    }
+    if (debugDest != null && debugDest.isNotEmpty && debugDest != installDest)
+      installTargets.add(debugDest);
+  }
+  return installTargets;
+}
+
+Future<void> installToBuildOutputs(
+  List<String> installTargets,
+  String selectedPlatform,
+  String outDir,
+  List<String> copiedNames,
+  String versionText,
+) async {
+  for (final target in installTargets) {
+    final instDir = Directory(target);
+    await instDir.create(recursive: true);
+    if (Platform.isMacOS) {
+      final apps = instDir
+          .listSync()
+          .whereType<Directory>()
+          .where((d) => d.path.toLowerCase().endsWith('.app'))
+          .toList();
+      if (apps.isEmpty) {
+        throw Exception(
+          'No .app found under install destination: ${instDir.path}',
+        );
+      }
+
+      final app = apps.first;
+      final macosBinDir = Directory(
+        '${app.path}${Platform.pathSeparator}Contents${Platform.pathSeparator}MacOS${Platform.pathSeparator}bin',
+      );
+      await macosBinDir.create(recursive: true);
+
+      for (final n in copiedNames) {
+        final src = File(
+          '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
+        );
+        final targetPath = '${macosBinDir.path}${Platform.pathSeparator}$n';
+        if (await src.exists()) {
+          final targetFile = File(targetPath);
+          await targetFile.parent.create(recursive: true);
+          try {
+            final sink = targetFile.openWrite();
+            await src.openRead().pipe(sink);
+            await sink.close();
+          } catch (_) {
+            try {
+              final bytes = await src.readAsBytes();
+              await targetFile.writeAsBytes(bytes, flush: true);
+            } catch (_) {
+              try {
+                if (await targetFile.exists()) await targetFile.delete();
+                await src.copy(targetFile.path);
+              } catch (_) {}
+            }
+          }
+          try {
+            await Process.run('chmod', ['+x', targetFile.path]);
+          } catch (_) {}
+        }
+      }
+
+      await File(
+        '${macosBinDir.path}${Platform.pathSeparator}version.txt',
+      ).writeAsString(versionText, flush: true);
+      stdout.writeln(
+        'Copied ${copiedNames.join(', ')} into app bundle: ${macosBinDir.path}',
+      );
+    } else {
+      final relativeOut = outDir.replaceAll(
+        RegExp(r'[\\/]+'),
+        Platform.pathSeparator,
+      );
+      final targetDir = '${instDir.path}${Platform.pathSeparator}$relativeOut';
+      final td = Directory(targetDir);
+      await td.create(recursive: true);
+      for (final n in copiedNames) {
+        final src = File(
+          '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
+        );
+        final targetPath = '$targetDir${Platform.pathSeparator}$n';
+        if (await src.exists()) {
+          final targetFile = File(targetPath);
+          await targetFile.parent.create(recursive: true);
+          try {
+            final sink = targetFile.openWrite();
+            await src.openRead().pipe(sink);
+            await sink.close();
+          } catch (_) {
+            try {
+              final bytes = await src.readAsBytes();
+              await targetFile.writeAsBytes(bytes, flush: true);
+            } catch (_) {
+              try {
+                if (await targetFile.exists()) await targetFile.delete();
+                await src.copy(targetFile.path);
+              } catch (_) {}
+            }
+          }
+          if (!Platform.isWindows) {
+            try {
+              await Process.run('chmod', ['+x', targetFile.path]);
+            } catch (_) {}
+          }
+        }
+      }
+      await File(
+        '${td.path}${Platform.pathSeparator}version.txt',
+      ).writeAsString(versionText, flush: true);
+      stdout.writeln(
+        'Copied ${copiedNames.join(', ')} to build output: ${td.path}',
+      );
+    }
+  }
 }
