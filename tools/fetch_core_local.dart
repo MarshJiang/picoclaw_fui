@@ -18,7 +18,7 @@ Future<void> main(List<String> args) async {
     ..addOption('pack-cmd', defaultsTo: '')
     ..addOption('platform', defaultsTo: '')
     ..addOption('arch', defaultsTo: '')
-    ..addFlag('skip-build', defaultsTo: false)
+    ..addFlag('skip-build', defaultsTo: true)
     ..addOption('build-mode', defaultsTo: 'release')
     ..addOption('asset-name', defaultsTo: '')
     ..addOption('github-token', defaultsTo: '')
@@ -172,97 +172,33 @@ Future<void> main(List<String> args) async {
     assetName = assetNameOverride;
     stdout.writeln('Using override asset name: $assetName');
   } else {
-    final api = Uri.parse(
-      'https://api.github.com/repos/$repo/releases${tag == 'latest' ? '/latest' : '/tags/$tag'}',
-    );
-    final headers = <String, String>{
-      'Accept': 'application/vnd.github.v3+json',
-    };
-    if (token.isNotEmpty) headers['Authorization'] = 'token $token';
-    final resp = await http.get(api, headers: headers);
-    if (resp.statusCode != 200) {
-      stderr.writeln('Failed to fetch release JSON: ${resp.statusCode}');
+    // Fetch release JSON and select best asset using helper functions.
+    List<Map<String, dynamic>> assets;
+    try {
+      final data = await fetchReleaseJson(repo, tag, token);
+      assets = (data['assets'] as List).cast<Map<String, dynamic>>();
+    } catch (e) {
+      stderr.writeln('Failed to fetch release JSON: $e');
       exit(2);
     }
-    final data = json.decode(resp.body) as Map<String, dynamic>;
-    final assets = (data['assets'] as List).cast<Map<String, dynamic>>();
 
     final prefExts = selectedPlatform.toLowerCase() == 'windows'
         ? ['.zip']
         : ['.tar.gz', '.tgz'];
 
-    final scored = <Map<String, dynamic>>[];
-    final platformToken = () {
-      final s = selectedPlatform.toLowerCase();
-      if (s == 'macos' || s == 'darwin') return 'darwin';
-      if (s == 'windows') return 'windows';
-      if (s == 'linux') return 'linux';
-      if (s == 'android') return 'android';
-      return s;
-    }();
-
-    final archLower = arch.toLowerCase();
-    for (final a in assets) {
-      final name = a['name'] as String? ?? '';
-      final nameLower = name.toLowerCase();
-      var score = 0;
-      for (final e in prefExts) {
-        if (nameLower.endsWith(e)) score += 1;
-      }
-      if (nameLower.contains('_${platformToken}_') ||
-          (nameLower.startsWith('picoclaw_') &&
-              nameLower.contains(platformToken))) {
-        score += 8;
-      }
-      if (nameLower.contains(archLower)) score += 4;
-      if (score > 0) {
-        scored.add({
-          'score': score,
-          'name': name,
-          'url': a['browser_download_url'],
-          'nameLower': nameLower,
-        });
-      }
-    }
-    if (scored.isEmpty) {
-      for (final a in assets) {
-        final name = a['name'] as String? ?? '';
-        final nameLower = name.toLowerCase();
-        for (final e in prefExts) {
-          if (nameLower.endsWith(e)) {
-            scored.add({
-              'score': 1,
-              'name': name,
-              'url': a['browser_download_url'],
-              'nameLower': nameLower,
-            });
-          }
-        }
-      }
-    }
-    if (scored.isEmpty) {
+    final chosen = selectBestAsset(
+      assets,
+      selectedPlatform,
+      arch,
+      prefExts,
+      requirePlatformMatch: targetPlatformArg.isNotEmpty,
+    );
+    if (chosen == null) {
       stderr.writeln('No matching asset found in release.');
       exit(3);
     }
-    scored.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-    if (targetPlatformArg.isNotEmpty) {
-      final firstMatch = scored.firstWhere(
-        (s) => (s['nameLower'] as String).contains(platformToken),
-        orElse: () => {},
-      );
-      if (firstMatch.isNotEmpty) {
-        assetName = firstMatch['name'] as String;
-        assetUrl = firstMatch['url'] as String;
-      } else {
-        stderr.writeln(
-          'No release asset matching platform "$selectedPlatform" found.',
-        );
-        exit(3);
-      }
-    } else {
-      assetName = scored.first['name'] as String;
-      assetUrl = scored.first['url'] as String;
-    }
+    assetName = chosen['name'] as String;
+    assetUrl = chosen['url'] as String;
   }
 
   assetUrl ??= await resolveAssetUrl(repo, tag, assetName, token);
@@ -451,7 +387,9 @@ Future<void> main(List<String> args) async {
             .where((d) => d.path.toLowerCase().endsWith('.app'))
             .toList();
         if (apps.isEmpty) {
-          throw Exception('No .app found under install destination: ${instDir.path}');
+          throw Exception(
+            'No .app found under install destination: ${instDir.path}',
+          );
         }
 
         final app = apps.first;
@@ -464,8 +402,7 @@ Future<void> main(List<String> args) async {
           final src = File(
             '${outDir.endsWith(Platform.pathSeparator) ? outDir : outDir + Platform.pathSeparator}$n',
           );
-          final targetPath =
-              '${macosBinDir.path}${Platform.pathSeparator}$n';
+          final targetPath = '${macosBinDir.path}${Platform.pathSeparator}$n';
           if (await src.exists()) {
             await src.copy(targetPath);
             try {
@@ -482,9 +419,12 @@ Future<void> main(List<String> args) async {
         );
       } else {
         // Preserve the out-dir path (typically app/bin) inside the build output
-        final relativeOut =
-            outDir.replaceAll(RegExp(r'[\\/]+'), Platform.pathSeparator);
-        final targetDir = '${instDir.path}${Platform.pathSeparator}$relativeOut';
+        final relativeOut = outDir.replaceAll(
+          RegExp(r'[\\/]+'),
+          Platform.pathSeparator,
+        );
+        final targetDir =
+            '${instDir.path}${Platform.pathSeparator}$relativeOut';
         final td = Directory(targetDir);
         await td.create(recursive: true);
         // copy all installed names into the build output under the preserved out-dir
@@ -503,11 +443,9 @@ Future<void> main(List<String> args) async {
           }
         }
         // Also write version.txt next to installed binary for traceability
-        await File('${td.path}${Platform.pathSeparator}version.txt')
-            .writeAsString(
-          versionContents.toString().trim(),
-          flush: true,
-        );
+        await File(
+          '${td.path}${Platform.pathSeparator}version.txt',
+        ).writeAsString(versionContents.toString().trim(), flush: true);
         stdout.writeln(
           'Copied ${copiedNames.join(', ')} to build output: ${td.path}',
         );
@@ -579,6 +517,106 @@ Future<String> detectArch() async {
     }
   } catch (_) {}
   return 'x86_64';
+}
+
+Future<Map<String, dynamic>> fetchReleaseJson(
+  String repo,
+  String tag,
+  String token,
+) async {
+  final api = Uri.parse(
+    'https://api.github.com/repos/$repo/releases${tag == 'latest' ? '/latest' : '/tags/$tag'}',
+  );
+  final headers = <String, String>{'Accept': 'application/vnd.github.v3+json'};
+  if (token.isNotEmpty) headers['Authorization'] = 'token $token';
+  final resp = await http.get(api, headers: headers);
+  if (resp.statusCode != 200) {
+    throw HttpException('Failed to fetch release JSON: ${resp.statusCode}');
+  }
+  return json.decode(resp.body) as Map<String, dynamic>;
+}
+
+Map<String, String>? selectBestAsset(
+  List<Map<String, dynamic>> assets,
+  String selectedPlatform,
+  String arch,
+  List<String> prefExts, {
+  bool requirePlatformMatch = false,
+}) {
+  final platformToken = () {
+    final s = selectedPlatform.toLowerCase();
+    if (s == 'macos' || s == 'darwin') return 'darwin';
+    if (s == 'windows') return 'windows';
+    if (s == 'linux') return 'linux';
+    if (s == 'android') return 'android';
+    return s;
+  }();
+
+  final archLower = arch.toLowerCase();
+  final scored = <Map<String, dynamic>>[];
+
+  for (final a in assets) {
+    final name = a['name'] as String? ?? '';
+    final nameLower = name.toLowerCase();
+    var score = 0;
+    for (final e in prefExts) {
+      if (nameLower.endsWith(e)) score += 1;
+    }
+    if (nameLower.contains('_${platformToken}_') ||
+        (nameLower.startsWith('picoclaw_') &&
+            nameLower.contains(platformToken))) {
+      score += 8;
+    }
+    if (nameLower.contains(archLower)) score += 4;
+    if (score > 0) {
+      scored.add({
+        'score': score,
+        'name': name,
+        'url': a['browser_download_url'],
+        'nameLower': nameLower,
+      });
+    }
+  }
+
+  if (scored.isEmpty) {
+    for (final a in assets) {
+      final name = a['name'] as String? ?? '';
+      final nameLower = name.toLowerCase();
+      for (final e in prefExts) {
+        if (nameLower.endsWith(e)) {
+          scored.add({
+            'score': 1,
+            'name': name,
+            'url': a['browser_download_url'],
+            'nameLower': nameLower,
+          });
+        }
+      }
+    }
+  }
+
+  if (scored.isEmpty) return null;
+
+  scored.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
+  if (requirePlatformMatch) {
+    final firstMatch = scored.firstWhere(
+      (s) => (s['nameLower'] as String).contains(platformToken),
+      orElse: () => {},
+    );
+    if (firstMatch.isNotEmpty) {
+      return {
+        'name': firstMatch['name'] as String,
+        'url': firstMatch['url'] as String,
+      };
+    }
+    return null;
+  }
+
+  return {
+    'name': scored.first['name'] as String,
+    'url': scored.first['url'] as String,
+  };
 }
 
 Future<void> downloadToFile(Uri url, File file, String token) async {
