@@ -178,10 +178,16 @@ class PicoClawMethodChannel(
                     }
                 }
                 "uploadUmengDeviceReport" -> {
+                    android.util.Log.d("PicoClawChannel", "=== uploadUmengDeviceReport called ===")
                     try {
                         val payload = call.arguments<Map<String, Any?>>() ?: emptyMap()
-                        result.success(AnalyticsReporter.uploadDeviceReport(context, payload))
+                        android.util.Log.d("PicoClawChannel", "Payload received with ${payload.size} fields")
+                        val reportResult = AnalyticsReporter.uploadDeviceReport(context, payload)
+                        android.util.Log.d("PicoClawChannel", "AnalyticsReporter returned: success=${reportResult["success"]}, message=${reportResult["message"]}")
+                        result.success(reportResult)
+                        android.util.Log.d("PicoClawChannel", "=== uploadUmengDeviceReport completed ===")
                     } catch (e: Exception) {
+                        android.util.Log.e("PicoClawChannel", "uploadUmengDeviceReport failed: ${e.message}", e)
                         result.error("UPLOAD_UMENG_REPORT_FAILED", e.message, null)
                     }
                 }

@@ -70,6 +70,9 @@ android {
         buildConfigField("String", "PICOCLAW_ANALYTICS_PROVIDER", analyticsProvider.toQuotedBuildConfigValue())
         buildConfigField("String", "PICOCLAW_UMENG_APP_KEY", umengAppKey.toQuotedBuildConfigValue())
         buildConfigField("String", "PICOCLAW_UMENG_CHANNEL", umengChannel.toQuotedBuildConfigValue())
+        // Pass values to AndroidManifest.xml via manifestPlaceholders
+        manifestPlaceholders["PICOCLAW_UMENG_APP_KEY"] = umengAppKey
+        manifestPlaceholders["PICOCLAW_UMENG_CHANNEL"] = umengChannel
     }
 
     buildTypes {
@@ -77,6 +80,12 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -115,15 +124,16 @@ tasks.register("generateFirebaseResources") {
         
         val stringsXml = file("$resDir/strings.xml")
         
-        // Build the content
+        // Build the content - always generate required fields even if empty
+        // to prevent AAPT errors when AndroidManifest references them
         val content = buildString {
             appendLine("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
             appendLine("<resources>")
             appendLine("    <!-- Auto-generated from dart-define, do not edit manually -->")
             
-            if (firebaseAppId.isNotEmpty()) {
-                appendLine("    <string name=\"google_app_id\" translatable=\"false\">${firebaseAppId.xmlEscape()}</string>")
-            }
+            // Always generate google_app_id (required by AndroidManifest.xml)
+            appendLine("    <string name=\"google_app_id\" translatable=\"false\">${firebaseAppId.xmlEscape()}</string>")
+            
             if (firebaseApiKey.isNotEmpty()) {
                 appendLine("    <string name=\"google_api_key\" translatable=\"false\">${firebaseApiKey.xmlEscape()}</string>")
             }
@@ -159,9 +169,15 @@ fun String.xmlEscape(): String {
         .replace("'", "&apos;")
 }
 
-// Run before preBuild
-tasks.named("preBuild").configure {
-    dependsOn("generateFirebaseResources")
+// Ensure resources are generated before any resource processing
+afterEvaluate {
+    // Hook into resource processing tasks which happen before AAPT linking
+    tasks.findByName("mergeDebugResources")?.dependsOn("generateFirebaseResources")
+    tasks.findByName("mergeReleaseResources")?.dependsOn("generateFirebaseResources")
+    tasks.findByName("processDebugResources")?.dependsOn("generateFirebaseResources")
+    tasks.findByName("processReleaseResources")?.dependsOn("generateFirebaseResources")
+    // Also hook into pre-build tasks as fallback
+    tasks.findByName("preBuild")?.dependsOn("generateFirebaseResources")
 }
 
 // Clean up sensitive resources after build

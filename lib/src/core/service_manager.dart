@@ -18,13 +18,12 @@ class ServiceManager extends ChangeNotifier {
     Duration(minutes: 1),
     Duration(minutes: 5),
   ];
+  static const String _rawAnalyticsProvider = String.fromEnvironment(
+    'PICOCLAW_ANALYTICS_PROVIDER',
+    defaultValue: 'firebase',
+  );
   static final DeviceFeedbackProvider _deviceFeedbackProvider =
-      DeviceFeedbackProvider.fromEnvironmentValue(
-        String.fromEnvironment(
-          'PICOCLAW_ANALYTICS_PROVIDER',
-          defaultValue: 'firebase',
-        ),
-      );
+      DeviceFeedbackProvider.fromEnvironmentValue(_rawAnalyticsProvider);
   static const String _firebaseProjectId = String.fromEnvironment(
     'PICOCLAW_FIREBASE_PROJECT_ID',
     defaultValue: 'picoclaw-analytics',
@@ -200,23 +199,12 @@ class ServiceManager extends ChangeNotifier {
     try {
       final isAllowed = await isDeviceFeedbackAllowed();
       final shouldUpload = await shouldAutoUploadDeviceFeedbackReport();
-      debugPrint(
-        '[ServiceManager] Auto-upload check: allowed=$isAllowed, shouldUpload=$shouldUpload',
-      );
 
-      // 检查是否需要上报：用户已同意且未在最近上报过
       if (isAllowed && shouldUpload) {
-        debugPrint(
-          '[ServiceManager] Auto-uploading device feedback on init...',
-        );
         triggerDeviceFeedbackUploadInBackground();
-      } else {
-        debugPrint(
-          '[ServiceManager] Auto-upload skipped: allowed=$isAllowed, shouldUpload=$shouldUpload',
-        );
       }
     } catch (e) {
-      debugPrint('[ServiceManager] Auto-upload failed: $e');
+      // Silent error handling
     }
   }
 
@@ -368,52 +356,23 @@ class ServiceManager extends ChangeNotifier {
   }
 
   void triggerDeviceFeedbackUploadInBackground() {
-    debugPrint(
-      '[ServiceManager] triggerDeviceFeedbackUploadInBackground called',
-    );
-    debugPrint(
-      '[ServiceManager] isDeviceFeedbackEnabled=$isDeviceFeedbackEnabled, isDeviceFeedbackUploadInProgress=$isDeviceFeedbackUploadInProgress',
-    );
     if (!isDeviceFeedbackEnabled || isDeviceFeedbackUploadInProgress) {
-      debugPrint(
-        '[ServiceManager] Upload skipped: feedback=${isDeviceFeedbackEnabled}, inProgress=${isDeviceFeedbackUploadInProgress}',
-      );
       return;
     }
     _deviceFeedbackRetryTimer?.cancel();
     _deviceFeedbackRetryTimer = null;
-    debugPrint('[ServiceManager] Starting uploadDeviceFeedbackReport...');
     unawaited(uploadDeviceFeedbackReport());
   }
 
   Future<DeviceFeedbackUploadResult>
   _uploadDeviceFeedbackReportInternal() async {
-    debugPrint(
-      '[ServiceManager] Starting device feedback upload, provider: $_deviceFeedbackProvider',
-    );
     late final DeviceFeedbackUploadResult result;
     switch (_deviceFeedbackProvider) {
       case DeviceFeedbackProvider.firebase:
-        debugPrint('[ServiceManager] Checking Firebase config...');
-        debugPrint(
-          '[ServiceManager] apiKey: ${_firebaseApiKey.isEmpty ? "EMPTY" : "set (${_firebaseApiKey.length} chars)"}',
-        );
-        debugPrint(
-          '[ServiceManager] appId: ${_firebaseAppId.isEmpty ? "EMPTY" : "set"}',
-        );
-        debugPrint(
-          '[ServiceManager] projectId: ${_firebaseProjectId.isEmpty ? "EMPTY" : "set"}',
-        );
-        debugPrint(
-          '[ServiceManager] messagingSenderId: ${_firebaseMessagingSenderId.isEmpty ? "EMPTY" : "set"}',
-        );
         if (_firebaseApiKey.trim().isEmpty) {
           result = const DeviceFeedbackUploadResult(
             success: false,
             message: 'Missing PICOCLAW_FIREBASE_API_KEY build configuration.',
-          );
-          debugPrint(
-            '[ServiceManager] Firebase config validation failed: API key is empty',
           );
           break;
         }
@@ -421,9 +380,6 @@ class ServiceManager extends ChangeNotifier {
           result = const DeviceFeedbackUploadResult(
             success: false,
             message: 'Missing PICOCLAW_FIREBASE_APP_ID build configuration.',
-          );
-          debugPrint(
-            '[ServiceManager] Firebase config validation failed: App ID is empty',
           );
           break;
         }
@@ -433,17 +389,8 @@ class ServiceManager extends ChangeNotifier {
             message:
                 'Missing PICOCLAW_FIREBASE_MESSAGING_SENDER_ID build configuration.',
           );
-          debugPrint(
-            '[ServiceManager] Firebase config validation failed: Messaging Sender ID is empty',
-          );
           break;
         }
-        debugPrint(
-          '[ServiceManager] Firebase config validation passed, calling uploadDeviceReport...',
-        );
-        debugPrint(
-          '[ServiceManager] storageBucket: ${_firebaseStorageBucket.isEmpty ? "EMPTY" : "set"}',
-        );
         result = await _firebaseReporter.uploadDeviceReport(
           appId: _firebaseAppId,
           projectId: _firebaseProjectId,
@@ -452,9 +399,6 @@ class ServiceManager extends ChangeNotifier {
           storageBucket: _firebaseStorageBucket.isEmpty
               ? null
               : _firebaseStorageBucket,
-        );
-        debugPrint(
-          '[ServiceManager] uploadDeviceReport returned: success=${result.success}, message=${result.message}',
         );
         break;
       case DeviceFeedbackProvider.umeng:
@@ -478,14 +422,9 @@ class ServiceManager extends ChangeNotifier {
         break;
     }
     _lastDeviceFeedbackSyncMessage = result.message;
-    debugPrint(
-      '[ServiceManager] Upload completed - success=${result.success}, message="${result.message}"',
-    );
     if (result.success) {
-      debugPrint('[ServiceManager] Resetting retry state (notify=false)');
       _resetDeviceFeedbackRetryState(notify: false);
     } else {
-      debugPrint('[ServiceManager] Scheduling retry if needed...');
       await _scheduleDeviceFeedbackRetryIfNeeded(result);
     }
     _addLog(
@@ -503,21 +442,16 @@ class ServiceManager extends ChangeNotifier {
     DeviceFeedbackUploadResult result,
   ) async {
     if (!_shouldRetryDeviceFeedback(result.message)) {
-      debugPrint('Device feedback will not retry: ${result.message}');
       _resetDeviceFeedbackRetryState(notify: false);
       return;
     }
     if (!await isDeviceFeedbackAllowed()) {
-      debugPrint('Device feedback retry cancelled: user disabled upload');
       _resetDeviceFeedbackRetryState(notify: false);
       return;
     }
     if (_deviceFeedbackRetryAttempt >= _deviceFeedbackRetryDelays.length) {
       _lastDeviceFeedbackSyncMessage =
           '${result.message} Auto retry stopped for now.';
-      debugPrint(
-        'Device feedback retry stopped after ${_deviceFeedbackRetryDelays.length} attempts',
-      );
       return;
     }
 
@@ -526,18 +460,11 @@ class ServiceManager extends ChangeNotifier {
     _deviceFeedbackRetryTimer?.cancel();
     _lastDeviceFeedbackSyncMessage =
         '${result.message} Retrying silently in ${delay.inSeconds}s.';
-    debugPrint(
-      'Device feedback scheduling retry #$_deviceFeedbackRetryAttempt in ${delay.inSeconds}s',
-    );
     _deviceFeedbackRetryTimer = Timer(delay, () {
       _deviceFeedbackRetryTimer = null;
       if (!isDeviceFeedbackEnabled || isDeviceFeedbackUploadInProgress) {
-        debugPrint('Device feedback retry skipped: service not ready');
         return;
       }
-      debugPrint(
-        'Device feedback executing retry #$_deviceFeedbackRetryAttempt',
-      );
       unawaited(uploadDeviceFeedbackReport());
     });
   }

@@ -95,23 +95,41 @@ class UmengDeviceReporter {
     required String appKey,
     String channel = _defaultChannel,
   }) async {
+    debugPrint('[Umeng] === uploadDeviceReport START ===');
+
     if (!Platform.isAndroid) {
+      debugPrint(
+        '[Umeng] ERROR: Umeng device reporting is only supported on Android',
+      );
       return const DeviceFeedbackUploadResult(
         success: false,
         message: 'Umeng device reporting is only supported on Android.',
       );
     }
     if (appKey.trim().isEmpty) {
+      debugPrint('[Umeng] ERROR: appKey is empty');
       return const DeviceFeedbackUploadResult(
         success: false,
         message: 'Umeng appKey is empty.',
       );
     }
+    debugPrint('[Umeng] Platform: Android, appKey configured');
 
+    debugPrint('[Umeng] Step 1: Getting install ID...');
     final installId = await getOrCreateInstallId();
+    debugPrint('[Umeng] Install ID: $installId');
+
+    debugPrint('[Umeng] Step 2: Collecting device info...');
     final info = await collectSafeDeviceInfo();
+    debugPrint(
+      '[Umeng] Device info: platform=${info['platform']}, model=${info['deviceModel']}',
+    );
+
     final now = DateTime.now().toUtc().toIso8601String();
+    debugPrint('[Umeng] Step 3: Preparing payload...');
+
     try {
+      debugPrint('[Umeng] Step 4: Calling native channel...');
       final result = await PicoClawChannel.uploadUmengDeviceReport({
         'installId': installId,
         'platform': info['platform'] ?? 'unknown',
@@ -125,8 +143,14 @@ class UmengDeviceReporter {
       final success = result['success'] == true;
       final message = result['message']?.toString() ?? 'Unknown Umeng error.';
 
+      debugPrint('[Umeng] Step 5: Processing result - success=$success');
+
       if (success) {
+        debugPrint('[Umeng] Step 6: Marking as uploaded...');
         await markUploaded();
+        debugPrint('[Umeng] === uploadDeviceReport SUCCESS ===');
+      } else {
+        debugPrint('[Umeng] === uploadDeviceReport FAILED: $message ===');
       }
 
       return DeviceFeedbackUploadResult(
@@ -136,15 +160,14 @@ class UmengDeviceReporter {
         deviceInfo: info,
       );
     } on TimeoutException catch (e) {
-      debugPrint('Umeng upload timed out: $e');
+      debugPrint('[Umeng] ERROR: TimeoutException - $e');
       return DeviceFeedbackUploadResult(
         success: false,
         message: 'Upload timed out.',
         deviceInfo: info,
       );
     } catch (e, stackTrace) {
-      debugPrint('Umeng upload failed: $e');
-      debugPrint('Stack trace: $stackTrace');
+      debugPrint('[Umeng] ERROR: Exception - $e');
       return DeviceFeedbackUploadResult(
         success: false,
         message: 'Upload failed: $e',
