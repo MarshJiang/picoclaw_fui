@@ -33,3 +33,11 @@
 -keepattributes Exceptions
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
+
+# Fix R8 missing class errors for javax.xml.stream (not available on Android)
+# Referenced by Apache Tika (transitive dependency from Umeng SDK)
+-dontwarn javax.xml.stream.**
+-dontwarn javax.xml.XMLConstants
+-keep class javax.xml.stream.** { *; }
+-keep class org.apache.tika.** { *; }
+-dontwarn org.apache.tika.**
