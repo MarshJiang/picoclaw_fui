@@ -104,7 +104,7 @@ class _ConfigPageState extends State<ConfigPage> {
         publicMode: service.publicMode,
       );
       if (Platform.isAndroid) {
-        await service.setAndroidWorkspaceDir('');
+        await service.setWorkspacePath('');
       }
     }
   }
@@ -428,7 +428,7 @@ class _ConfigPageState extends State<ConfigPage> {
                   ),
                 ),
                 child: Text(
-                  service.androidWorkspaceDir,
+                  service.workspacePath,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ),
